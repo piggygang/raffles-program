@@ -47,6 +47,12 @@ die() {
   exit 1
 }
 
+# For tool output headed to the terminal: drops control characters and every
+# URL, since an RPC URL can carry an API key.
+redact() {
+  tr -d '\000-\010\013-\037\177' | sed -E 's#[[:alpha:]]+://[^[:space:])"]+#<url>#g'
+}
+
 for tool in solana solana-keygen solana-verify docker git; do
   command -v "$tool" >/dev/null || die "$tool is not on PATH (README, \"Toolchain\")"
 done
@@ -119,13 +125,20 @@ solana program deploy "$binary" \
   --use-rpc \
   --max-sign-attempts 10
 
-# solana-verify reads at finalized commitment, a few seconds behind the deploy.
-deployed_hash=
+# solana-verify reads at finalized commitment, a few seconds behind the deploy:
+# until then a first deploy isn't found and an upgrade still has the old hash.
+lookup_errors=$(mktemp)
+trap 'rm -f "$lookup_errors"' EXIT
 for _ in $(seq 30); do
-  deployed_hash=$(solana-verify --url "$rpc_url" get-program-hash "$program_id" 2>/dev/null || true)
-  [[ $deployed_hash == "$hash" ]] && break
+  if deployed_hash=$(solana-verify --url "$rpc_url" get-program-hash "$program_id" 2>"$lookup_errors"); then
+    [[ $deployed_hash == "$hash" ]] && break
+  else
+    deployed_hash=
+  fi
   sleep 2
 done
+[[ -n $deployed_hash ]] ||
+  die "could not read the program hash from devnet: $(redact <"$lookup_errors")"
 [[ $deployed_hash == "$hash" ]] ||
   die "devnet runs $deployed_hash, but the build hashed to $hash"
 echo "Deployed $commit to devnet: $program_id ($hash)"
