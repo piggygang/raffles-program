@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Each pin is also declared in a file the first step checks against.
+  ANCHOR_VERSION: 1.2.2
+  SOLANA_VERSION: 4.1.2
+  SOLANA_VERIFY_VERSION: 0.5.2
+  # Anchor never waits for interactive input.
+  NO_DNA: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain pins agree
+        run: |
+          grep -qxF "anchor_version = \"$ANCHOR_VERSION\"" Anchor.toml
+          grep -qxF "solana_version = \"$SOLANA_VERSION\"" Anchor.toml
+          grep -qxF "solana = \"$SOLANA_VERSION\"" Cargo.toml
+          grep -qF "anchor-lang = \"=$ANCHOR_VERSION\"" programs/raffles/Cargo.toml
+          grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" programs/raffles/Cargo.toml
+
+      # Switchboard asks for `solana-program >=3`, which a plain `cargo update`
+      # resolves to the newest major: a second Solana SDK next to the 3.x that
+      # the Metaplex crates use. Cargo.lock pins it to the shared version.
+      - name: One Solana SDK in Cargo.lock
+        run: test "$(grep -cxF 'name = "solana-program"' Cargo.lock)" = 1
+
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install the Agave and Anchor CLIs
+        run: |
+          mkdir -p "$HOME/.local/bin" "$HOME/.local/share/agave"
+          curl -sSfL "https://github.com/anza-xyz/agave/releases/download/v$SOLANA_VERSION/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+            | tar xj -C "$HOME/.local/share/agave"
+          curl -sSfL -o "$HOME/.local/bin/anchor" \
+            "https://github.com/otter-sec/anchor/releases/download/v$ANCHOR_VERSION/anchor-$ANCHOR_VERSION-x86_64-unknown-linux-gnu"
+          chmod +x "$HOME/.local/bin/anchor"
+          echo "$HOME/.local/share/agave/solana-release/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # platform-tools, downloaded by the first `cargo build-sbf`. Cargo.toml
+      # pins their version.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/solana
+          key: platform-tools-${{ runner.os }}-${{ hashFiles('Cargo.toml') }}
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # A fresh checkout has no program keypair, so the build generates a
+      # throwaway target/deploy/raffles-keypair.json that never matches
+      # declare_id!. Skip the check that compares them.
+      - run: anchor build --ignore-keys
+      # LiteSVM, in-process: the program from the build above plus the
+      # mainnet fixtures in programs/raffles/tests/fixtures.
+      - run: cargo test --workspace
+
+      # PIG-117 publishes the IDL from tags; every run keeps a copy.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: idl
+          path: target/idl/raffles.json
+          if-no-files-found: error
+
+  # The Docker build scripts/deploy-devnet.sh deploys, so its hash for a commit
+  # is the hash of that commit on devnet.
+  verifiable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install solana-verify
+        run: |
+          base="https://github.com/solana-foundation/solana-verifiable-build/releases/download/v$SOLANA_VERIFY_VERSION"
+          curl -sSfL -o solana-verify "$base/solana-verify-$SOLANA_VERIFY_VERSION-linux"
+          echo "$(curl -sSfL "$base/solana-verify-$SOLANA_VERIFY_VERSION-linux.sha256" | cut -d' ' -f1)  solana-verify" \
+            | sha256sum -c -
+          install -D -m 0755 solana-verify "$HOME/.local/bin/solana-verify"
+          rm solana-verify
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: solana-verify build --library-name raffles --arch v3
+      - name: Executable hash
+        run: solana-verify get-executable-hash target/deploy/raffles.so | tee raffles.so.hash
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: raffles-verifiable
+          path: |
+            target/deploy/raffles.so
+            raffles.so.hash
+          if-no-files-found: error

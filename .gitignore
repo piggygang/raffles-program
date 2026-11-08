@@ -1,0 +1,16 @@
+# Build output, including target/deploy/raffles-keypair.json: a throwaway key
+# the build generates. The program keypair never lives in the repo.
+/target
+/.anchor
+# Ledgers of `anchor localnet`, if anyone starts one.
+/test-ledger
+/.surfpool
+**/*.rs.bk
+
+# Keypairs belong in ~/.config/solana/piggygang (README, "Keys").
+*-keypair.json
+
+.env*
+.DS_Store
+.idea
+.vscode

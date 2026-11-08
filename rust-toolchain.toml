@@ -1,0 +1,8 @@
+# Host toolchain for clippy, unit tests and the IDL build. `cargo build-sbf`
+# compiles the program with platform-tools v1.57 (pinned in Cargo.toml), which
+# ships Rust 1.95.0, so the host uses the same compiler: a dependency that needs
+# a newer rustc fails here first instead of in the SBF build.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,5 @@
+# Program code may not unwrap, expect or panic ([workspace.lints] in
+# Cargo.toml, denied in CI by `-D warnings`); tests may.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

@@ -1,0 +1,44 @@
+[workspace]
+members = ["programs/*"]
+# Resolver 3 prefers dependency versions that build with `rust-version`.
+resolver = "3"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.95"
+
+# Read by `cargo build-sbf` on every build path (anchor, solana-verify's Docker
+# image), so the platform-tools version is the same everywhere. Anchor 1.2.2
+# passes v1.57 explicitly; Agave 4.1.2's cargo-build-sbf would default to v1.54.
+[workspace.metadata.solana]
+tools-version = "v1.57"
+
+# solana-verify picks its build image from this. Keep it equal to
+# `solana_version` in Anchor.toml.
+[workspace.metadata.cli]
+solana = "4.1.2"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[workspace.lints.clippy]
+# A panic aborts the transaction with an opaque error: return an error code.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+# Lossy `as` casts are a classic source of on-chain accounting bugs.
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_sign_loss = "warn"
+# SBF emulates floats in software: slow, and rounding is easy to get wrong.
+float_arithmetic = "warn"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1

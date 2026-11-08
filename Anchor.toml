@@ -1,0 +1,26 @@
+# The tests run in-process on LiteSVM (programs/raffles/tests), so
+# `anchor test` builds and runs `cargo test` without starting a validator.
+skip_local_validator = true
+
+[toolchain]
+anchor_version = "1.2.2"
+solana_version = "4.1.2"
+
+[features]
+resolution = true
+skip-lint = false
+
+# The address in `declare_id!`, on every cluster. Devnet deploys go through
+# scripts/deploy-devnet.sh, never `anchor deploy` (see README).
+[programs.localnet]
+raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"
+
+[programs.devnet]
+raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
