@@ -130,7 +130,10 @@ solana program deploy "$binary" \
 lookup_errors=$(mktemp)
 trap 'rm -f "$lookup_errors"' EXIT
 for _ in $(seq 30); do
-  if deployed_hash=$(solana-verify --url "$rpc_url" get-program-hash "$program_id" 2>"$lookup_errors"); then
+  if output=$(solana-verify --url "$rpc_url" get-program-hash "$program_id" 2>"$lookup_errors"); then
+    # solana-verify prints its RPC retry notices to stdout too; the hash is the
+    # last line.
+    deployed_hash=${output##*$'\n'}
     [[ $deployed_hash == "$hash" ]] && break
   else
     deployed_hash=
