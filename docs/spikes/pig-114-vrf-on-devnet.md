@@ -106,9 +106,10 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
 
   At most three attempts on mainnet need 3 × (500,000 + 4,455,160) + 650,240 = 15,515,720 lamports (0.0155 SOL). Each fulfilled request refunds 3,108,960 to the vault, and `close_raffle` returns what is left. Rent per byte has already dropped once, from 6,960 to 5,080, so compute the fee from the Rent sysvar at create time.
 - **The seed.** It has to be unique per raffle and attempt, and never zero. It also must not repeat for a later raffle at the same address, or that raffle would adopt the old one's fulfilled request. The spike uses `sha256("vrf-spike" ‖ draw ‖ attempt)` and never closes a draw, so the attempt count never restarts.
-- **Entropy from after the close.** Mix in something that doesn't exist before entries close, so nobody can compute the outcome while entries are open. `request_draw` takes it and requests in the same instruction, so there is no window in which a known seed can lapse:
+- **Entropy from after the close.** This is guidance for PIG-83; the spike's seed has no slot hash. Mix in something that doesn't exist before entries close, so nobody can compute the outcome while entries are open. `request_draw` takes it and requests in the same instruction, so there is no window in which a known seed can lapse:
   1. It runs only once `now ≥ end_ts`, and it mixes the newest SlotHashes entry into the seed: the hash of the slot right before its own. That hash exists only once that slot ends. Entries in the executing slot read the same clock and are rejected, so no entry can land after the hash is known.
   2. The crank passes the slot it expects to be newest, and the request account derived from it. If the transaction lands later, the newest entry has moved on, so the check fails and the crank retries with the new newest slot. Each landing slot has exactly one valid hash, so the crank can't choose between hashes. Nothing expires, so a known result can't be discarded by letting it lapse; once the request exists, the re-request rule below protects it.
+  3. The crank still chooses which slot to land in. Someone holding a quorum of ORAO's authority keys could compute each slot's outcome as soon as its hash exists, and send `request_draw` only in a slot whose outcome they like. Nobody else can: without those keys, an outcome is known only once ORAO's fulfillments land, a median of 7 slots later (section 2.2), when that slot's hash is long past the newest. ORAO could steer the result through its signatures anyway (section 2.5), so this adds no trust beyond ORAO's. Sending `request_draw` as soon as `end_ts` passes (section 4) leaves such a party fewer slots to choose from.
 - **Adopting a squatted request.** If the request account already exists, check its address and owner and adopt it. The spike does this, and a test covers it.
 - **`fulfill_draw`.**
   - Read the request as Anchor's `Account<RandomnessV2>` with `seeds::program` set to ORAO. That checks the owner, discriminator and address, so the program only has to require `fulfilled()`.
@@ -120,7 +121,7 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
 ## 4. What this means for the crank (PIG-160)
 
 - **The loop.** There's nothing to commit or reveal:
-  1. Send `request_draw`, naming the newest slot it sees (section 3). If it lands a slot late, send it again.
+  1. As soon as `end_ts` passes, send `request_draw`, naming the newest slot it sees (section 3), and again every slot until one lands. Waiting for the next tick would leave a party holding ORAO's keys more slots to choose from.
   2. Wait for the request account to show fulfilled. Poll it, or subscribe to ORAO's `Fulfill` event.
   3. Send `fulfill_draw`.
 
