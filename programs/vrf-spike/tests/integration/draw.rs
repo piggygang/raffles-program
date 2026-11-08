@@ -36,6 +36,9 @@ fn request_is_permissionless_and_paid_from_the_vault() {
     assert_eq!(test.lamports(&vault), DEPOSIT - fee - rent);
 }
 
+/// ORAO's own `fulfill_v2`, with the test authorities: below the quorum
+/// `consume` refuses, and at the quorum the draw takes the XOR of their
+/// signatures.
 #[test]
 fn consume_waits_for_a_quorum_then_draws_from_the_combined_randomness() {
     let mut test = Test::new();
@@ -83,6 +86,8 @@ fn consume_waits_for_a_quorum_then_draws_from_the_combined_randomness() {
     );
 }
 
+/// E-D4's re-request: the draw moves to the next seed, and a late
+/// fulfillment of the old request can't settle it.
 #[test]
 fn a_rerequest_moves_the_draw_to_a_new_seed() {
     let mut test = Test::new();
@@ -107,6 +112,8 @@ fn a_rerequest_moves_the_draw_to_a_new_seed() {
     );
 }
 
+/// Seed squatting: a stranger requests the draw's next seed first, and the
+/// draw adopts that request rather than failing on it.
 #[test]
 fn request_adopts_a_request_someone_else_made_for_its_seed() {
     let mut test = Test::new();
@@ -163,6 +170,8 @@ fn withdraw_returns_the_vault_and_keeps_the_draw() {
     assert_eq!(test.draw().requests, 1);
 }
 
+/// After a withdraw the draw can't be created again, so its next request
+/// gets a new seed, not its first one, which ORAO already fulfilled.
 #[test]
 fn a_draw_never_repeats_a_seed_after_a_withdraw() {
     let mut test = Test::new();
