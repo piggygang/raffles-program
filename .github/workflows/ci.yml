@@ -32,7 +32,9 @@ jobs:
           grep -qxF "anchor_version = \"$ANCHOR_VERSION\"" Anchor.toml
           grep -qxF "solana_version = \"$SOLANA_VERSION\"" Anchor.toml
           grep -qxF "solana = \"$SOLANA_VERSION\"" Cargo.toml
-          grep -qF "anchor-lang = \"=$ANCHOR_VERSION\"" programs/raffles/Cargo.toml
+          for manifest in programs/*/Cargo.toml spikes/vrf-driver/Cargo.toml; do
+            grep -qF "anchor-lang = \"=$ANCHOR_VERSION\"" "$manifest"
+          done
           grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" programs/raffles/Cargo.toml
 
       # Switchboard asks for `solana-program >=3`, which a plain `cargo update`
@@ -71,8 +73,8 @@ jobs:
       # throwaway target/deploy/raffles-keypair.json that never matches
       # declare_id!. Skip the check that compares them.
       - run: anchor build --ignore-keys
-      # LiteSVM, in-process: the program from the build above plus the
-      # mainnet fixtures in programs/raffles/tests/fixtures.
+      # LiteSVM, in-process: the programs from the build above plus the
+      # fixtures in programs/*/tests/fixtures.
       - run: cargo test --workspace
 
       # PIG-117 publishes the IDL from tags; every run keeps a copy.
@@ -81,6 +83,25 @@ jobs:
           name: idl
           path: target/idl/raffles.json
           if-no-files-found: error
+
+  # The PIG-114 spike's devnet driver. It is its own workspace (see its
+  # Cargo.toml), so the steps above don't reach it.
+  vrf-driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: spikes/vrf-driver
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/vrf-driver
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
 
   # The Docker build scripts/deploy-devnet.sh deploys, so its hash for a commit
   # is the hash of that commit on devnet.
