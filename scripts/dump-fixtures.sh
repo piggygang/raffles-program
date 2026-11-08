@@ -18,6 +18,8 @@ programs=(
 )
 
 mkdir -p "$dir"
+# A failed dump or parse exits mid-write; don't leave the partial file behind.
+trap 'rm -f "$dir/README.md.tmp"' EXIT
 {
   echo "# Program fixtures"
   echo
