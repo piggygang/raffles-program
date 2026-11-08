@@ -58,6 +58,7 @@ The LiteSVM tests run the real devnet ORAO binary, with test keys installed as f
 | Sample | Requests | Fulfilled | Request → quorum, slots |
 | --- | --- | --- | --- |
 | 1,000 transactions, about 11 h, 2026-11-08 | 247 | 247 | p50 7, p90 9, p99 113, max 131 |
+| 400 transactions, about 9.5 h, 2026-11-08 | 96 | 96 | min 4, p50 7, p90 29, p99 131, max 131 |
 
 Every request completed with exactly three successful fulfillments, one per responding authority.
 
@@ -111,7 +112,7 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
   2. The crank passes the slot it expects to be newest, and the request account derived from it. If the transaction lands later, the newest entry has moved on, so the check fails and the crank retries with the new newest slot. Each landing slot has exactly one valid hash, so the crank can't choose between hashes. Nothing expires, so a known result can't be discarded by letting it lapse; once the request exists, the re-request rule below protects it.
   3. The crank still chooses which slot to land in, so the draw is only as fair as three assumptions, which the ADR-1 revision should state:
      - **ORAO helps nobody choose.** Anyone holding a quorum of its authority keys, or given quorum signatures early, could compute each slot's outcome as soon as its hash exists, and send `request_draw` only in a slot they like. ORAO could steer the result through its signatures anyway (section 2.5), so this is part of the same trust in ORAO.
-     - **ORAO never fulfills a request within the slot it lands in.** Otherwise anyone could request the newest seed themselves, see the result, and still land `request_draw` while that hash is the newest. Fulfillment took a median of 7 slots in section 2.2, but a median isn't a bound; `vrf-driver observe` now reports the fastest as well.
+     - **ORAO never fulfills a request within the slot it lands in.** Otherwise anyone could request the newest seed themselves, see the result, and still land `request_draw` while that hash is the newest. The fastest fulfillment in section 2.2's 400-transaction sample took 4 slots, but a sample isn't a bound.
      - **An honest crank lands early.** Sending `request_draw` as soon as `end_ts` passes (section 4) narrows the window, but nothing guarantees the honest crank wins the race.
 - **Adopting a squatted request.** If the request account already exists, check its address and owner and adopt it. The spike does this, and a test covers it.
 - **`fulfill_draw`.**
