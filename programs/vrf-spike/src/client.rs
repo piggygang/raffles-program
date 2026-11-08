@@ -10,14 +10,17 @@ use {
     },
 };
 
+/// The creator's draw. A wallet has one, and it is never closed.
 pub fn draw(creator: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[Draw::SEED, creator.as_ref()], &crate::ID).0
 }
 
+/// The data-less PDA that holds the draw's lamports and pays ORAO.
 pub fn vault(draw: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[VAULT_SEED, draw.as_ref()], &crate::ID).0
 }
 
+/// ORAO's configuration: its fee, treasury and fulfillment authorities.
 pub fn network_state() -> Pubkey {
     orao_solana_vrf::network_state_account_address(&orao_solana_vrf::ID)
 }

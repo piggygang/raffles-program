@@ -27,6 +27,8 @@ pub struct Request<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Requests the draw's next seed from ORAO, paid by the vault, or adopts the
+/// request someone already made for it.
 pub fn handle_request(ctx: Context<Request>) -> Result<()> {
     let accounts = &ctx.accounts;
     let draw_key = accounts.draw.key();

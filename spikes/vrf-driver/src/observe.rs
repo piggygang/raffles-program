@@ -32,8 +32,19 @@ struct Request {
     fulfillments: Vec<u64>,
 }
 
+/// Reads ORAO's latest `txs` transactions and reports how many requests made
+/// in that window reached a quorum of fulfillments, and how fast.
 pub async fn observe(chain: &Chain, txs: usize) -> Result<()> {
     let cluster = chain.cluster().await?;
+    // A request is fulfilled once this many authorities have answered.
+    let quorum = orao_solana_vrf::majority(
+        chain
+            .network_state()
+            .await?
+            .config
+            .fulfillment_authorities
+            .len(),
+    );
     let mut statuses = Vec::new();
     let mut before = None;
     while statuses.len() < txs {
@@ -88,24 +99,27 @@ pub async fn observe(chain: &Chain, txs: usize) -> Result<()> {
         .values()
         .filter(|request| request.slot > 0)
         .collect();
+    // Fewer fulfillments than the quorum means the request is still open:
+    // in flight while young, unfulfilled after that.
     let fulfilled: Vec<&&Request> = made
         .iter()
-        .filter(|request| !request.fulfillments.is_empty())
+        .filter(|request| request.fulfillments.len() >= quorum)
         .collect();
     let in_flight = made
         .iter()
         .filter(|request| {
-            request.fulfillments.is_empty()
+            request.fulfillments.len() < quorum
                 && request
                     .time
                     .is_some_and(|time| newest - time < IN_FLIGHT_SECS)
         })
         .count();
+    // The fulfillment that completed the quorum, not a later one.
     let latency = |request: &Request| {
-        request
-            .fulfillments
-            .iter()
-            .max()
+        let mut slots = request.fulfillments.clone();
+        slots.sort_unstable();
+        slots
+            .get(quorum - 1)
             .map(|slot| slot.saturating_sub(request.slot))
     };
     let slots: Vec<u64> = fulfilled

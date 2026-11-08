@@ -59,6 +59,7 @@ enum Command {
     Withdraw,
 }
 
+/// Runs the command; only `observe` goes without a wallet.
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -75,6 +76,8 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Prints ORAO's configuration, whether the spike is deployed, and this
+/// wallet's draw and vault.
 async fn status(chain: &Chain) -> Result<()> {
     println!("cluster        {}", chain.cluster().await?);
     let network = chain.network_state().await?.config;
@@ -117,6 +120,7 @@ async fn status(chain: &Chain) -> Result<()> {
     Ok(())
 }
 
+/// Returns the vault's lamports to the wallet and leaves the draw in place.
 async fn withdraw(chain: &Chain) -> Result<()> {
     chain.require_devnet().await?;
     let wallet = chain.payer().pubkey();

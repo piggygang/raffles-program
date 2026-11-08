@@ -39,6 +39,8 @@ pub struct Test {
 }
 
 impl Test {
+    /// Loads both programs and the fixtures, installs the test authorities and
+    /// funds every key.
     pub fn new() -> Self {
         let mut svm = LiteSVM::new();
         svm.add_program_from_file(vrf_spike::ID, VRF_SPIKE_SO)

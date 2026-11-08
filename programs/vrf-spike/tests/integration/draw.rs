@@ -7,6 +7,7 @@ use {
     vrf_spike::{client, winner_index},
 };
 
+/// Whether the failed transaction logged the Anchor error `name`.
 fn has_error(failed: &FailedTransactionMetadata, name: &str) -> bool {
     let code = format!("Error Code: {name}.");
     failed.meta.logs.iter().any(|log| log.contains(&code))

@@ -106,10 +106,9 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
 
   At most three attempts on mainnet need 3 × (500,000 + 4,455,160) + 650,240 = 15,515,720 lamports (0.0155 SOL). Each fulfilled request refunds 3,108,960 to the vault, and `close_raffle` returns what is left. Rent per byte has already dropped once, from 6,960 to 5,080, so compute the fee from the Rent sysvar at create time.
 - **The seed.** It has to be unique per raffle and attempt, and never zero. It also must not repeat for a later raffle at the same address, or that raffle would adopt the old one's fulfilled request. The spike uses `sha256("vrf-spike" ‖ draw ‖ attempt)` and never closes a draw, so the attempt count never restarts.
-- **Entropy from after the close.** Mix in something that doesn't exist before entries close, so nobody can compute the outcome while entries are open. SlotHashes holds no timestamps, so the program pins the slot itself rather than taking one from the crank:
-  1. The first `request_draw` at or after `end_ts` only records the current slot on the raffle. That slot's hash exists only once the slot ends, after entries closed.
-  2. The next `request_draw`, at least a slot later, reads exactly that slot's hash from SlotHashes and mixes it into the seed. The crank never picks a slot, so it can't choose between hashes.
-  3. SlotHashes keeps the last 512 slots, about 3.5 minutes. If the hash has aged out, `request_draw` records a new slot and starts over. Each such restart is visible on chain.
+- **Entropy from after the close.** Mix in something that doesn't exist before entries close, so nobody can compute the outcome while entries are open. `request_draw` takes it and requests in the same instruction, so there is no window in which a known seed can lapse:
+  1. It runs only once `now ≥ end_ts`, and it mixes the newest SlotHashes entry into the seed: the hash of the slot right before its own. That hash exists only once that slot ends. Entries in the executing slot read the same clock and are rejected, so no entry can land after the hash is known.
+  2. The crank passes the slot it expects to be newest, and the request account derived from it. If the transaction lands later, the newest entry has moved on, so the check fails and the crank retries with the new newest slot. Each landing slot has exactly one valid hash, so the crank can't choose between hashes. Nothing expires, so a known result can't be discarded by letting it lapse; once the request exists, the re-request rule below protects it.
 - **Adopting a squatted request.** If the request account already exists, check its address and owner and adopt it. The spike does this, and a test covers it.
 - **`fulfill_draw`.**
   - Read the request as Anchor's `Account<RandomnessV2>` with `seeds::program` set to ORAO. That checks the owner, discriminator and address, so the program only has to require `fulfilled()`.
@@ -121,7 +120,7 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
 ## 4. What this means for the crank (PIG-160)
 
 - **The loop.** There's nothing to commit or reveal:
-  1. Send `request_draw`.
+  1. Send `request_draw`, naming the newest slot it sees (section 3). If it lands a slot late, send it again.
   2. Wait for the request account to show fulfilled. Poll it, or subscribe to ORAO's `Fulfill` event.
   3. Send `fulfill_draw`.
 
@@ -129,7 +128,7 @@ The spike program, `programs/vrf-spike`, already has the shape of the two draw i
 - **The missed reveal window is gone** (architecture R7, §3c step 4). In its place:
   - an authority outage, which needs a timeout and an alert
   - re-requests, which spend part of the draw fee each time
-- **Cost to the crank.** Two transaction fees per draw. The fee and the rent come from the raffle's vault.
+- **Cost to the crank.** Two transaction fees per draw, plus one for each `request_draw` that lands late. ORAO's fee and the rent come from the raffle's vault.
 - **`spikes/vrf-driver` is the seed** of the VRF driver. It already sizes the compute budget by simulating, re-signs when a blockhash expires, and treats a request someone else made as success.
 
 ## 5. Docs and issues to update

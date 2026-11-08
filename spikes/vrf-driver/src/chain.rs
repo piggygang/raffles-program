@@ -50,6 +50,8 @@ pub struct Landed {
 }
 
 impl Chain {
+    /// Connects to `url` at `confirmed`. `keypair` is a path, where `~/` means
+    /// the home directory; `None` for the commands that only read.
     pub fn new(url: &str, keypair: Option<&str>, priority_fee: u64) -> Result<Self> {
         let payer = keypair
             .map(|keypair| {
@@ -67,12 +69,14 @@ impl Chain {
         })
     }
 
+    /// The wallet. Only the commands that sign load it.
     pub fn payer(&self) -> &Keypair {
         self.payer
             .as_ref()
             .unwrap_or_else(|| unreachable!("commands that sign load the keypair"))
     }
 
+    /// Names the cluster by its genesis hash.
     pub async fn cluster(&self) -> Result<&'static str> {
         Ok(
             match self.rpc.get_genesis_hash().await?.to_string().as_str() {
@@ -83,6 +87,7 @@ impl Chain {
         )
     }
 
+    /// Refuses any cluster but devnet, for the commands that send transactions.
     pub async fn require_devnet(&self) -> Result<()> {
         match self.cluster().await? {
             "devnet" => Ok(()),
@@ -119,6 +124,7 @@ impl Chain {
             .context("ORAO's network state doesn't exist on this cluster")
     }
 
+    /// Reads and decodes an Anchor account; `None` if it doesn't exist.
     async fn decode<T: AccountDeserialize>(&self, address: &Pubkey) -> Result<Option<T>> {
         self.account(address)
             .await?

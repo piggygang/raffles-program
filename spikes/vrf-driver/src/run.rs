@@ -24,7 +24,8 @@ use {
     vrf_spike::{client, winner_index},
 };
 
-/// How long `fulfillments` waits for the history to catch up: about 10 s.
+/// How long `fulfillments` and `consumed_value` wait for the RPC to catch up:
+/// about 10 s.
 const HISTORY_POLLS: u32 = 25;
 
 #[derive(clap::Args)]
@@ -85,6 +86,8 @@ struct Record {
     winner: Option<u64>,
 }
 
+/// Funds the vault for `--runs` cycles, runs them one after another and
+/// prints the summary table.
 pub async fn run(chain: &Chain, args: &Args) -> Result<()> {
     chain.require_devnet().await?;
     if !chain
@@ -181,6 +184,8 @@ struct Accounts {
     quorum: usize,
 }
 
+/// One request, fulfillment and consumption, written into `record` as it
+/// goes. An error ends the cycle at the stage its outcome names.
 async fn cycle(chain: &Chain, args: &Args, accounts: &Accounts, record: &mut Record) -> Result<()> {
     let Accounts {
         draw,
@@ -247,13 +252,25 @@ async fn cycle(chain: &Chain, args: &Args, accounts: &Accounts, record: &mut Rec
     record.consume_compute_units = landed.compute_units;
     record.consume_fee = landed.fee;
     record.outcome = Outcome::Ok;
-    record.winner = chain
-        .draw(draw)
+    record.winner = consumed_value(chain, draw, landed.slot)
         .await
-        .ok()
-        .flatten()
-        .and_then(|state| winner_index(&state.value, args.entries).ok());
+        .and_then(|value| winner_index(&value, args.entries).ok());
     Ok(())
+}
+
+/// The value the consume in `slot` stored. The RPC can serve the draw a slot
+/// or more behind the signature status, so it polls until the draw shows that
+/// consumption, and gives `None` rather than an older value.
+async fn consumed_value(chain: &Chain, draw: &Pubkey, slot: u64) -> Option<[u8; 64]> {
+    for _ in 0..HISTORY_POLLS {
+        if let Ok(Some(state)) = chain.draw(draw).await {
+            if state.consumed_slot == slot {
+                return Some(state.value);
+            }
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    None
 }
 
 /// The slot of the fulfillment that completed the quorum, and how many
@@ -294,6 +311,7 @@ async fn fulfillments(
     None
 }
 
+/// One terminal line per cycle.
 fn print_progress(record: &Record, runs: u32) {
     let detail = match record.outcome {
         Outcome::Ok => format!(
@@ -311,6 +329,7 @@ fn print_progress(record: &Record, runs: u32) {
     );
 }
 
+/// How an outcome reads in the progress lines and the summary.
 fn outcome_name(outcome: Outcome) -> &'static str {
     match outcome {
         Outcome::Ok => "ok",
@@ -381,6 +400,7 @@ fn summarize(records: &[Record], request_fee: u64, fulfilled_rent: u64) {
     );
 }
 
+/// Wall-clock milliseconds since the Unix epoch.
 fn unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
