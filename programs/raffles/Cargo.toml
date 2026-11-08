@@ -1,0 +1,52 @@
+[package]
+name = "raffles"
+version = "0.1.0"
+description = "PiggyGang Raffles: escrowed prizes, free per-NFT entries and a Switchboard VRF draw"
+repository = "https://github.com/piggygang/raffles-program"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "raffles"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+# Exact pins: the crates move in lockstep with the CLI version in Anchor.toml.
+anchor-lang = "=1.2.2"
+# `metadata` brings mpl-token-metadata, pinned by anchor-spl to the build on
+# Solana 3 crates (5.1.1, the latest stable, is still Solana 2). Import it as
+# `anchor_spl::metadata::mpl_token_metadata`; don't add it directly.
+anchor-spl = { version = "=1.2.2", features = ["metadata"] }
+# mpl-core's `anchor` features target Anchor 0.31/0.32, so use its plain
+# Solana 3 client.
+mpl-core = "0.12.1"
+# The default `solana-v2` feature would pull in a second Solana SDK.
+switchboard-on-demand = { version = "0.13.0", default-features = false, features = ["solana-v3"] }
+
+# switchboard-on-demand -> libsecp256k1 -> rand pulls in getrandom 0.2, which
+# has no Solana backend. `custom` lets it compile; nothing on-chain calls it.
+[target.'cfg(target_os = "solana")'.dependencies]
+getrandom = { version = "0.2", features = ["custom"] }
+
+# LiteSVM 0.16 runs the Agave 4.2 runtime, the newest that builds on Rust 1.95
+# (0.15 breaks against it; 0.17+ needs the 4.3 runtime, which needs Rust 1.97).
+[dev-dependencies]
+litesvm = "0.16.0"
+solana-keypair = "3"
+solana-message = "4"
+solana-signer = "3"
+solana-transaction = "4"
+
+[lints]
+workspace = true
