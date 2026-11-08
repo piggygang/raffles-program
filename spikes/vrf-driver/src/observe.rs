@@ -238,16 +238,18 @@ fn orao_instructions(
     found
 }
 
-/// `p50 …, p90 …, p99 …, max …` by nearest rank, or `none`.
+/// `min …, p50 …, p90 …, p99 …, max …` by nearest rank, or `none`. The minimum
+/// matters for latency: how soon a result can be known, not just how soon it
+/// usually is.
 pub fn percentiles(values: &[u64]) -> String {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
-    let Some(&max) = sorted.last() else {
+    let (Some(&min), Some(&max)) = (sorted.first(), sorted.last()) else {
         return "none".into();
     };
     let rank = |permille: usize| sorted[(sorted.len() * permille).div_ceil(1_000).max(1) - 1];
     format!(
-        "p50 {}, p90 {}, p99 {}, max {max} (n = {})",
+        "min {min}, p50 {}, p90 {}, p99 {}, max {max} (n = {})",
         rank(500),
         rank(900),
         rank(990),
