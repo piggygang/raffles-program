@@ -120,8 +120,9 @@ solana program deploy "$binary" \
   --max-sign-attempts 10
 
 # solana-verify reads at finalized commitment, a few seconds behind the deploy.
+deployed_hash=
 for _ in $(seq 30); do
-  deployed_hash=$(solana-verify --url "$rpc_url" get-program-hash "$program_id")
+  deployed_hash=$(solana-verify --url "$rpc_url" get-program-hash "$program_id" 2>/dev/null || true)
   [[ $deployed_hash == "$hash" ]] && break
   sleep 2
 done
