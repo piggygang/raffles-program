@@ -2,7 +2,7 @@
 //! programs/vrf-spike on devnet, waits for ORAO to fulfill it, consumes it and
 //! records each cycle. It is the seed of raffles-crank's VRF driver (PIG-160).
 //!
-//! `run` and `close` send transactions and refuse any cluster but devnet;
+//! `run` and `withdraw` send transactions and refuse any cluster but devnet;
 //! `status` and `observe` only read.
 
 mod chain;
@@ -54,8 +54,9 @@ enum Command {
     },
     /// Requests, waits for the fulfillment and consumes, `--runs` times.
     Run(run::Args),
-    /// Closes this wallet's draw and returns what its vault holds.
-    Close,
+    /// Returns what this wallet's draw vault holds. The draw stays, so a later
+    /// `run` carries on with new seeds.
+    Withdraw,
 }
 
 #[tokio::main]
@@ -70,7 +71,7 @@ async fn main() -> Result<()> {
         Command::Status => status(&chain).await,
         Command::Observe { txs } => observe::observe(&chain, txs).await,
         Command::Run(args) => run::run(&chain, &args).await,
-        Command::Close => close(&chain).await,
+        Command::Withdraw => withdraw(&chain).await,
     }
 }
 
@@ -116,14 +117,14 @@ async fn status(chain: &Chain) -> Result<()> {
     Ok(())
 }
 
-async fn close(chain: &Chain) -> Result<()> {
+async fn withdraw(chain: &Chain) -> Result<()> {
     chain.require_devnet().await?;
     let wallet = chain.payer().pubkey();
     let vault = client::vault(&client::draw(&wallet));
     let returned = chain.lamports(&vault).await?;
-    let landed = chain.send(&[client::close_draw(wallet)]).await?;
+    let landed = chain.send(&[client::withdraw(wallet)]).await?;
     println!(
-        "Closed the draw in slot {}; the vault returned {returned} lamports ({}).",
+        "Withdrew {returned} lamports from the vault in slot {} ({}).",
         landed.slot, landed.signature
     );
     Ok(())

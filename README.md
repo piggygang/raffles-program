@@ -4,7 +4,7 @@ The Anchor program behind PiggyGang Raffles: escrowed prizes, free per-NFT entri
 
 So far the program has a single scaffold instruction, `hello`. The repo is pure Rust: the program, its tests and their harness.
 
-`programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet, measured end to end. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
+`programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet. Its end-to-end devnet measurement is still to run. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
 
 | Cluster | Program ID |
 | --- | --- |

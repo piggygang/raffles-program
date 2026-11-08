@@ -76,12 +76,12 @@ pub fn consume(draw: Pubkey, seed: &[u8; 32], entries: u64) -> Instruction {
 }
 
 /// Signed by the creator, who gets the vault's lamports back.
-pub fn close_draw(creator: Pubkey) -> Instruction {
+pub fn withdraw(creator: Pubkey) -> Instruction {
     let draw = draw(&creator);
     Instruction::new_with_bytes(
         crate::ID,
-        &instruction::CloseDraw {}.data(),
-        accounts::CloseDraw {
+        &instruction::Withdraw {}.data(),
+        accounts::Withdraw {
             creator,
             draw,
             vault: vault(&draw),

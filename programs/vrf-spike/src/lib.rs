@@ -39,8 +39,9 @@ pub mod vrf_spike {
         instructions::consume::handle_consume(ctx, entries)
     }
 
-    /// Closes the draw and returns what the vault holds to the creator.
-    pub fn close_draw(ctx: Context<CloseDraw>) -> Result<()> {
-        instructions::close_draw::handle_close_draw(ctx)
+    /// Returns what the vault holds to the creator. The draw stays, so its
+    /// request count, and with it every seed, never repeats.
+    pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
+        instructions::withdraw::handle_withdraw(ctx)
     }
 }

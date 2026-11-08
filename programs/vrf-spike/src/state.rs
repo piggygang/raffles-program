@@ -7,7 +7,7 @@ pub const VAULT_SEED: &[u8] = b"vault";
 #[account]
 #[derive(InitSpace)]
 pub struct Draw {
-    /// Funded the vault; gets what is left in it on close.
+    /// Funded the vault; gets what is left in it on withdraw.
     pub creator: Pubkey,
     /// Requests so far, re-requests included. The next request's seed derives
     /// from it.

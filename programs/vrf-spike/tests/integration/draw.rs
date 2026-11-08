@@ -144,24 +144,64 @@ fn request_adopts_a_request_someone_else_made_for_its_seed() {
 }
 
 #[test]
-fn close_returns_the_vault_to_the_creator() {
+fn withdraw_returns_the_vault_and_keeps_the_draw() {
     let mut test = Test::new();
     test.init_draw();
     test.request().unwrap_or_else(fail);
-    let draw_address = test.draw_address();
-    let vault = client::vault(&draw_address);
+    let vault = client::vault(&test.draw_address());
     let creator = test.creator.pubkey();
-    let returned = test.lamports(&vault) + test.lamports(&draw_address);
+    let returned = test.lamports(&vault);
     let before = test.lamports(&creator);
 
     let meta = test
-        .send(
-            &test.creator.insecure_clone(),
-            &[client::close_draw(creator)],
-        )
+        .send(&test.creator.insecure_clone(), &[client::withdraw(creator)])
         .unwrap_or_else(fail);
 
     assert_eq!(test.lamports(&vault), 0);
-    assert_eq!(test.lamports(&draw_address), 0);
     assert_eq!(test.lamports(&creator), before + returned - meta.fee);
+    assert_eq!(test.draw().requests, 1);
+}
+
+#[test]
+fn a_draw_never_repeats_a_seed_after_a_withdraw() {
+    let mut test = Test::new();
+    test.init_draw();
+    test.request().unwrap_or_else(fail);
+    let first = test.draw().seed;
+    for authority in 0..orao_solana_vrf::majority(test.authorities.len()) {
+        test.fulfill(&first, authority);
+    }
+    test.consume(10).unwrap_or_else(fail);
+    let creator = test.creator.insecure_clone();
+    test.send(&creator, &[client::withdraw(creator.pubkey())])
+        .unwrap_or_else(fail);
+
+    // The draw can't be created again with its request count back at 0, which
+    // would make its next seed the first one, already fulfilled.
+    let failed = test
+        .send(&creator, &[client::init_draw(creator.pubkey(), DEPOSIT)])
+        .unwrap_err();
+    assert!(
+        failed
+            .meta
+            .logs
+            .iter()
+            .any(|log| log.contains("already in use")),
+        "{}",
+        failed.meta.pretty_logs()
+    );
+
+    // Funded again, it carries on with a new seed and a fresh request.
+    let vault = client::vault(&test.draw_address());
+    let fund = anchor_lang::solana_program::system_instruction::transfer(
+        &creator.pubkey(),
+        &vault,
+        DEPOSIT,
+    );
+    test.send(&creator, &[fund]).unwrap_or_else(fail);
+    test.request().unwrap_or_else(fail);
+    let draw = test.draw();
+    assert_eq!(draw.requests, 2);
+    assert_ne!(draw.seed, first);
+    assert!(test.request_account(&draw.seed).pending().is_some());
 }

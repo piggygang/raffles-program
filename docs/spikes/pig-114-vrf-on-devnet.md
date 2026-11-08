@@ -100,20 +100,21 @@ Measured on LiteSVM (Agave 4.2 runtime) for the spike's instructions. The real o
 The spike program, `programs/vrf-spike`, already has the shape of the two draw instructions.
 
 - **Who pays.** Each raffle gets a vault: a PDA without data, funded with the creator's draw fee at `create_raffle`. The program signs for the vault in the `request_v2` CPI, so `request_draw` is permissionless and the crank pays only its transaction fee, as spec §8 wants. Fulfillment refunds come back to the vault, and `close_raffle` returns what is left.
-- **The draw fee.** It has to cover:
-  - one fee plus kept rent per attempt
-  - the transient rent of one pending request
-  - the vault's own rent-exempt minimum, which is 650,240 lamports today
+- **The draw fee.** Budget for the worst case, every attempt pending at once. A re-request happens because the previous request hasn't been fulfilled, so that request still holds its full pending rent.
+  - Per attempt: ORAO's fee plus 4,455,160 lamports of pending rent.
+  - Once: the vault's own rent-exempt minimum, 650,240 lamports today.
 
-  Three attempts on mainnet need about 9.3M lamports (0.0093 SOL). Rent per byte has already dropped once, from 6,960 to 5,080, so compute the fee from the Rent sysvar at create time.
-- **The seed.** It has to be unique per raffle and attempt, and never zero. The spike uses `sha256("vrf-spike" ‖ draw ‖ attempt)`.
-  - For the real draw, add entropy that doesn't exist before entries close. For example, the crank passes a SlotHashes entry from after `end_ts`, and the program checks it against the sysvar.
-  - That way nobody can compute the outcome while entries are open.
+  At most three attempts on mainnet need 3 × (500,000 + 4,455,160) + 650,240 = 15,515,720 lamports (0.0155 SOL). Each fulfilled request refunds 3,108,960 to the vault, and `close_raffle` returns what is left. Rent per byte has already dropped once, from 6,960 to 5,080, so compute the fee from the Rent sysvar at create time.
+- **The seed.** It has to be unique per raffle and attempt, and never zero. It also must not repeat for a later raffle at the same address, or that raffle would adopt the old one's fulfilled request. The spike uses `sha256("vrf-spike" ‖ draw ‖ attempt)` and never closes a draw, so the attempt count never restarts.
+- **Entropy from after the close.** Mix in something that doesn't exist before entries close, so nobody can compute the outcome while entries are open. SlotHashes holds no timestamps, so the program pins the slot itself rather than taking one from the crank:
+  1. The first `request_draw` at or after `end_ts` only records the current slot on the raffle. That slot's hash exists only once the slot ends, after entries closed.
+  2. The next `request_draw`, at least a slot later, reads exactly that slot's hash from SlotHashes and mixes it into the seed. The crank never picks a slot, so it can't choose between hashes.
+  3. SlotHashes keeps the last 512 slots, about 3.5 minutes. If the hash has aged out, `request_draw` records a new slot and starts over. Each such restart is visible on chain.
 - **Adopting a squatted request.** If the request account already exists, check its address and owner and adopt it. The spike does this, and a test covers it.
 - **`fulfill_draw`.**
   - Read the request as Anchor's `Account<RandomnessV2>` with `seeds::program` set to ORAO. That checks the owner, discriminator and address, so the program only has to require `fulfilled()`.
   - Then `winner_index = u64::from_le_bytes(randomness[..8]) % total_entries`, as spec §8 already says. The randomness is now 64 bytes, of which the first 8 are used.
-- **Re-request (E-D4).** After the retry timeout, `request_draw` moves to the next attempt's seed, and `fulfill_draw` accepts only the latest one. The slowest observed fulfillment took 131 slots, under a minute, so a retry timeout of a few minutes leaves ample margin.
+- **Re-request (E-D4).** After the retry timeout, `request_draw` moves to the next attempt's seed, but only while the current request is still unfulfilled. Once it is fulfilled, the draw has to settle with that result, or a crank could discard a winner it doesn't like by re-requesting. `fulfill_draw` accepts only the latest seed. The slowest observed fulfillment took 131 slots, under a minute, so a retry timeout of a few minutes leaves ample margin. The spike skips the fulfillment check and re-requests whenever asked.
 - **Compute limits.** About 23k CU for the spike's request and 7k for consume, before the real instructions' own work. Set the limits from measurements in PIG-83.
 - **Dependencies.** `programs/raffles` still depends on `switchboard-on-demand`. Replace it with `orao-solana-vrf` (`default-features = false, features = ["cpi"]`). That also removes the `getrandom` workaround, which only Switchboard needed.
 
@@ -168,21 +169,28 @@ The public devnet RPC rate-limits it. With `RAFFLES_DEVNET_RPC_URL` set to a Hel
 This sends devnet transactions. It deploys the spike program once, then runs 50 request → fulfill → consume cycles through it and records each:
 
 ```sh
+# The wallet for every step. The driver doesn't read `solana config`, so pass
+# it explicitly: the draw belongs to the wallet that runs it.
+wallet=~/.config/solana/id.json
+
 # 1. Deploy. Needs about 1.8 SOL while deploying; about 0.89 SOL stays as program rent.
 anchor build --ignore-keys
 solana program deploy target/deploy/vrf_spike.so \
-  --program-id ~/.config/solana/piggygang/vrf-spike-program-devnet.json -u devnet
+  --program-id ~/.config/solana/piggygang/vrf-spike-program-devnet.json \
+  --keypair "$wallet" -u devnet
 
 # 2. Measure. Funds the draw's vault with about 0.09 SOL and writes a JSON line per cycle.
 export RAFFLES_DEVNET_RPC_URL=<Helius devnet URL>
 cargo run --release --manifest-path spikes/vrf-driver/Cargo.toml -- \
-  run --runs 50 --out docs/spikes/pig-114-runs.jsonl
+  run --runs 50 --out docs/spikes/pig-114-runs.jsonl --keypair "$wallet"
 
 # 3. Return the vault's remainder.
-cargo run --release --manifest-path spikes/vrf-driver/Cargo.toml -- close
+cargo run --release --manifest-path spikes/vrf-driver/Cargo.toml -- \
+  withdraw --keypair "$wallet"
 ```
 
-- The program keypair lives outside the repo (README, "Keys"). The default wallet pays and becomes the upgrade authority.
+- The program keypair lives outside the repo (README, "Keys"). `$wallet` pays and becomes the upgrade authority.
+- The draw stays after `withdraw`, so a later `run` with the same wallet carries on with new seeds.
 - `status` shows the draw and the vault at any point.
 - `solana program close VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw -u devnet --bypass-warning` returns the program rent once the spike is over.
 

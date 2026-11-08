@@ -7,12 +7,10 @@ use {
 };
 
 #[derive(Accounts)]
-pub struct CloseDraw<'info> {
+pub struct Withdraw<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
-        mut,
-        close = creator,
         has_one = creator,
         seeds = [Draw::SEED, creator.key().as_ref()],
         bump = draw.bump,
@@ -23,9 +21,12 @@ pub struct CloseDraw<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// ORAO's request accounts stay behind: ORAO has no instruction to close them,
-/// so a fulfilled request keeps its rent.
-pub fn handle_close_draw(ctx: Context<CloseDraw>) -> Result<()> {
+/// The draw stays open. Closed, `init_draw` could recreate it at the same
+/// address with its request count back at 0, and its first seeds would match
+/// requests ORAO already fulfilled, which `request` would adopt. ORAO's request
+/// accounts stay too: ORAO has no instruction to close them, so a fulfilled
+/// request keeps its rent.
+pub fn handle_withdraw(ctx: Context<Withdraw>) -> Result<()> {
     let accounts = &ctx.accounts;
     let draw_key = accounts.draw.key();
     let lamports = accounts.vault.lamports();
@@ -40,6 +41,6 @@ pub fn handle_close_draw(ctx: Context<CloseDraw>) -> Result<()> {
         ),
         lamports,
     )?;
-    msg!("close: returned {} lamports", lamports);
+    msg!("withdraw: returned {} lamports", lamports);
     Ok(())
 }

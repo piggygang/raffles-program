@@ -15,6 +15,7 @@ dir=programs/vrf-spike/tests/fixtures
 vrf=VRFzZoJdhFWL8rkvu87LpKM3RbcVezpMEc6X5GVDr7y
 network_state=$(solana find-program-derived-address "$vrf" string:orao-vrf-network-configuration |
   awk '{ print $1 }')
+[[ -n $network_state ]] || { echo "could not derive the network state address for $vrf" >&2; exit 1; }
 
 mkdir -p "$dir"
 slot=$(solana slot --url "$rpc_url")

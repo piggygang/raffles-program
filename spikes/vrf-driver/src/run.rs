@@ -24,6 +24,9 @@ use {
     vrf_spike::{client, winner_index},
 };
 
+/// How long `fulfillments` waits for the history to catch up: about 10 s.
+const HISTORY_POLLS: u32 = 25;
+
 #[derive(clap::Args)]
 pub struct Args {
     /// Request, fulfill and consume cycles.
@@ -104,6 +107,7 @@ pub async fn run(chain: &Chain, args: &Args) -> Result<()> {
     let draw = client::draw(&chain.payer().pubkey());
     let vault = client::vault(&draw);
     fund(chain, &draw, &vault, needed).await?;
+    let quorum = orao_solana_vrf::majority(network.fulfillment_authorities.len());
 
     let out = args
         .out
@@ -120,7 +124,13 @@ pub async fn run(chain: &Chain, args: &Args) -> Result<()> {
             started_at_unix_ms: unix_ms(),
             ..Record::default()
         };
-        if let Err(err) = cycle(chain, args, &draw, &vault, network.treasury, &mut record).await {
+        let accounts = Accounts {
+            draw,
+            vault,
+            treasury: network.treasury,
+            quorum,
+        };
+        if let Err(err) = cycle(chain, args, &accounts, &mut record).await {
             record.error = Some(format!("{err:#}"));
         }
         writeln!(file, "{}", serde_json::to_string(&record)?)?;
@@ -162,24 +172,38 @@ async fn fund(chain: &Chain, draw: &Pubkey, vault: &Pubkey, needed: u64) -> Resu
     Ok(())
 }
 
-async fn cycle(
-    chain: &Chain,
-    args: &Args,
-    draw: &Pubkey,
-    vault: &Pubkey,
+/// What every cycle works on.
+struct Accounts {
+    draw: Pubkey,
+    vault: Pubkey,
     treasury: Pubkey,
-    record: &mut Record,
-) -> Result<()> {
+    /// Fulfillments that settle a request.
+    quorum: usize,
+}
+
+async fn cycle(chain: &Chain, args: &Args, accounts: &Accounts, record: &mut Record) -> Result<()> {
+    let Accounts {
+        draw,
+        vault,
+        quorum,
+        ..
+    } = accounts;
+    record.outcome = Outcome::RequestFailed;
     let state = chain.draw(draw).await?.context("the draw is gone")?;
     let seed = client::request_seed(draw, state.requests);
     let request = client::request(&seed);
     record.request = state.requests;
     record.request_account = request.to_string();
-    let vault_before = chain.lamports(vault).await?;
+    // The balances only feed `vault_cost`, so failing to read one doesn't fail
+    // the cycle.
+    let vault_before = chain.lamports(vault).await.ok();
 
-    record.outcome = Outcome::RequestFailed;
     let landed = chain
-        .send(&[client::request_randomness(*draw, state.requests, treasury)])
+        .send(&[client::request_randomness(
+            *draw,
+            state.requests,
+            accounts.treasury,
+        )])
         .await?;
     record.request_signature = Some(landed.signature.to_string());
     record.request_slot = Some(landed.slot);
@@ -201,13 +225,20 @@ async fn cycle(
         tokio::time::sleep(POLL).await;
     }
     record.latency_ms = Some(landed.confirmed_at.elapsed().as_millis());
-    let (fulfill_slot, responses) = fulfillments(chain, &request, &landed).await?;
-    record.fulfill_slot = Some(fulfill_slot);
-    record.responses = Some(responses);
-    record.latency_slots = fulfill_slot.checked_sub(landed.slot);
-    record.vault_cost = vault_before.checked_sub(chain.lamports(vault).await?);
 
+    // Fulfilled: from here on only consume can fail the cycle, and the metrics
+    // below are best effort.
     record.outcome = Outcome::ConsumeFailed;
+    if let Some((fulfill_slot, responses)) = fulfillments(chain, &request, &landed, *quorum).await {
+        record.fulfill_slot = Some(fulfill_slot);
+        record.responses = Some(responses);
+        record.latency_slots = fulfill_slot.checked_sub(landed.slot);
+    }
+    let vault_after = chain.lamports(vault).await.ok();
+    record.vault_cost = vault_before
+        .zip(vault_after)
+        .and_then(|(before, after)| before.checked_sub(after));
+
     let landed = chain
         .send(&[client::consume(*draw, &seed, args.entries)])
         .await?;
@@ -215,38 +246,52 @@ async fn cycle(
     record.consume_slot = Some(landed.slot);
     record.consume_compute_units = landed.compute_units;
     record.consume_fee = landed.fee;
-    let state = chain.draw(draw).await?.context("the draw is gone")?;
-    record.winner = winner_index(&state.value, args.entries).ok();
     record.outcome = Outcome::Ok;
+    record.winner = chain
+        .draw(draw)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|state| winner_index(&state.value, args.entries).ok());
     Ok(())
 }
 
 /// The slot of the fulfillment that completed the quorum, and how many
-/// authorities' fulfillments landed.
-async fn fulfillments(chain: &Chain, request: &Pubkey, landed: &Landed) -> Result<(u64, usize)> {
-    let signatures = chain
-        .rpc
-        .get_signatures_for_address_with_config(
-            request,
-            GetConfirmedSignaturesForAddress2Config {
-                limit: Some(25),
-                commitment: Some(CommitmentConfig::confirmed()),
-                ..GetConfirmedSignaturesForAddress2Config::default()
-            },
-        )
-        .await?;
+/// authorities' fulfillments landed. The RPC indexes signatures behind the
+/// account state, so it polls until the history shows the whole quorum, and
+/// gives `None` rather than a partial count.
+async fn fulfillments(
+    chain: &Chain,
+    request: &Pubkey,
+    landed: &Landed,
+    quorum: usize,
+) -> Option<(u64, usize)> {
     let request_signature = landed.signature.to_string();
-    let slots: Vec<u64> = signatures
-        .iter()
-        .filter(|status| status.err.is_none() && status.signature != request_signature)
-        .map(|status| status.slot)
-        .collect();
-    let slot = slots
-        .iter()
-        .copied()
-        .max()
-        .context("the request is fulfilled, but its history shows no fulfillment")?;
-    Ok((slot, slots.len()))
+    for _ in 0..HISTORY_POLLS {
+        let history = chain
+            .rpc
+            .get_signatures_for_address_with_config(
+                request,
+                GetConfirmedSignaturesForAddress2Config {
+                    limit: Some(25),
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    ..GetConfirmedSignaturesForAddress2Config::default()
+                },
+            )
+            .await;
+        if let Ok(history) = history {
+            let slots: Vec<u64> = history
+                .iter()
+                .filter(|status| status.err.is_none() && status.signature != request_signature)
+                .map(|status| status.slot)
+                .collect();
+            if slots.len() >= quorum {
+                return slots.iter().max().map(|&slot| (slot, slots.len()));
+            }
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    None
 }
 
 fn print_progress(record: &Record, runs: u32) {
