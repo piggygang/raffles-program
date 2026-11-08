@@ -31,6 +31,7 @@ mkdir -p "$dir"
     show=$(solana program show --url "$rpc_url" "$id")
     slot=$(awk '/^Last Deployed In Slot:/ { print $5 }' <<<"$show")
     authority=$(awk '/^Authority:/ { print $2 }' <<<"$show")
+    [[ -n $slot && -n $authority ]] || { echo "could not parse program show output for $id" >&2; exit 1; }
     upgradeable=yes
     [[ $authority == none ]] && upgradeable=no
     echo "| \`$name.so\` | \`$id\` | $slot | $upgradeable |"
