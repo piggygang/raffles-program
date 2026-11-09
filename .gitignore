@@ -1,6 +1,7 @@
 # Build output, including target/deploy/raffles-keypair.json: a throwaway key
 # the build generates. The program keypair never lives in the repo.
 /target
+/spikes/*/target
 /.anchor
 # Ledgers of `anchor localnet`, if anyone starts one.
 /test-ledger

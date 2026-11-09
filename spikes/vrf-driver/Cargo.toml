@@ -1,0 +1,37 @@
+[package]
+name = "vrf-driver"
+version = "0.1.0"
+description = "PIG-114 spike: drives and measures ORAO VRF through programs/vrf-spike on devnet"
+repository = "https://github.com/piggygang/raffles-program"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+
+# Its own workspace, outside the program workspace: `cargo build-sbf` builds
+# every workspace member for SBF, and an RPC client doesn't compile there.
+[workspace]
+resolver = "3"
+
+[dependencies]
+anchor-lang = "=1.2.2"
+anyhow = "1"
+bs58 = "0.5"
+clap = { version = "4", features = ["derive", "env"] }
+orao-solana-vrf = { version = "=0.8.1", default-features = false, features = ["cpi"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Agave 4.2, the release LiteSVM 0.16 runs: 4.3 needs Rust 1.97.
+solana-account = "4"
+solana-commitment-config = "3"
+solana-compute-budget-interface = "3"
+solana-keypair = "3"
+solana-message = "4"
+solana-rpc-client = "~4.2"
+solana-rpc-client-api = "~4.2"
+solana-signature = "3"
+solana-signer = "3"
+solana-system-interface = { version = "3", features = ["bincode"] }
+solana-transaction = "4"
+solana-transaction-status-client-types = "~4.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+vrf-spike = { path = "../../programs/vrf-spike", features = ["no-entrypoint"] }

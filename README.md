@@ -4,10 +4,14 @@ The Anchor program behind PiggyGang Raffles: escrowed prizes, free per-NFT entri
 
 So far the program has a single scaffold instruction, `hello`. The repo is pure Rust: the program, its tests and their harness.
 
+`programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet. Its end-to-end devnet measurement is still to run. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
+
 | Cluster | Program ID |
 | --- | --- |
 | devnet | `RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM` |
 | mainnet | gets its own program ID at launch |
+
+The spike program is devnet-only, at `VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw`.
 
 ## Toolchain
 
@@ -40,7 +44,7 @@ If the active Solana CLI isn't 4.1.2, Anchor switches to it for each command and
 anchor build --ignore-keys
 ```
 
-This builds `target/deploy/raffles.so` and the IDL at `target/idl/raffles.json`.
+This builds `target/deploy/raffles.so` and the IDL at `target/idl/raffles.json`, and the same for the spike program.
 
 `--ignore-keys` is deliberate. Anchor compares `declare_id!` against `target/deploy/raffles-keypair.json`, a random key that the build generates when none exists. The real program keypair never enters the repo, so that check can only ever fail. **Never run `anchor keys sync` or `anchor deploy`**: the first rewrites the program ID to the throwaway key, and the second deploys to it.
 
@@ -57,6 +61,8 @@ The VM also runs Token Metadata and mpl-core: their mainnet bytecode, dumped int
 
 The tests are one binary, `programs/raffles/tests/integration`, with a module per area and a shared `harness`. Add new areas as modules there, not as new files in `tests/`, so LiteSVM links once.
 
+The spike's tests run the ORAO VRF program dumped from devnet, with test keys in place of ORAO's fulfillment authorities, so request, fulfill and consume all run for real. `scripts/dump-vrf-spike-fixtures.sh` refreshes the dump.
+
 CI runs:
 
 ```sh
@@ -67,6 +73,14 @@ cargo test --workspace
 ```
 
 Clippy flags `unwrap`, `expect`, `panic`, lossy `as` casts and float arithmetic in program code; test code may unwrap. The lint set lives in `[workspace.lints]` in `Cargo.toml`.
+
+`spikes/vrf-driver` is a workspace of its own, because `cargo build-sbf` builds every workspace member for SBF and an RPC client doesn't compile there. CI lints it in a separate job:
+
+```sh
+cd spikes/vrf-driver
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+```
 
 ## Deploy to devnet
 
@@ -100,13 +114,16 @@ No key ever enters the repo. `*-keypair.json` is gitignored as a backstop.
 | --- | --- | --- |
 | Program keypair (`RAFA…`) | `~/.config/solana/piggygang/raffles-program-devnet.json` | The first devnet deploy only |
 | Devnet upgrade authority | `~/.config/solana/piggygang/raffles-devnet-authority.json` | Every devnet deploy; it also pays, so keep a few SOL on it |
+| Spike program keypair (`VRFs…`) | `~/.config/solana/piggygang/vrf-spike-program-devnet.json` | The spike's first devnet deploy (PIG-114) |
 
-Both are team secrets. Their canonical copies live in the team password manager: copy them to the paths above, or point `RAFFLES_PROGRAM_KEYPAIR` and `RAFFLES_DEVNET_AUTHORITY` at them. After the first deploy, the program keypair has no further use, because the address is permanent and only the upgrade authority can change the program. If the authority doesn't exist yet, create it once and store it in the password manager:
+The raffles keys are team secrets. Their canonical copies live in the team password manager: copy them to the paths above, or point `RAFFLES_PROGRAM_KEYPAIR` and `RAFFLES_DEVNET_AUTHORITY` at them. After the first deploy, the program keypair has no further use, because the address is permanent and only the upgrade authority can change the program. If the authority doesn't exist yet, create it once and store it in the password manager:
 
 ```sh
 solana-keygen new -o ~/.config/solana/piggygang/raffles-devnet-authority.json
 solana airdrop 2 -u devnet -k ~/.config/solana/piggygang/raffles-devnet-authority.json
 ```
+
+The spike keypair is disposable: it lives only on the machine that made it. Whoever runs the spike deploys from there, or grinds a new keypair and updates `declare_id!` in `programs/vrf-spike` and its `Anchor.toml` entries.
 
 The program ID changes only through a reviewed edit of `declare_id!` and of both `[programs.*]` entries in `Anchor.toml`. On mainnet the upgrade authority will be the Squads v4 vault, as the architecture lays out; the mainnet program and its verified-build submission are out of scope here.
 
@@ -125,5 +142,8 @@ Anchor 1.2.2 is built on the Solana 3 crates, and every dependency is aligned to
 programs/raffles/src/                 the program
 programs/raffles/tests/integration/   LiteSVM tests: harness and one module per area
 programs/raffles/tests/fixtures/      Token Metadata and mpl-core dumped from mainnet
-scripts/                              deploy-devnet.sh, dump-fixtures.sh
+programs/vrf-spike/                   PIG-114 spike program, its tests and ORAO fixtures
+spikes/vrf-driver/                    PIG-114 devnet driver (its own workspace)
+docs/spikes/                          spike write-ups
+scripts/                              deploy-devnet.sh, dump-fixtures.sh, dump-vrf-spike-fixtures.sh
 ```

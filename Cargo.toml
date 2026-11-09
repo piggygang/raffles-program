@@ -1,5 +1,8 @@
 [workspace]
 members = ["programs/*"]
+# Their own workspaces: `cargo build-sbf` builds every member for SBF, and
+# off-chain tools like spikes/vrf-driver don't compile there.
+exclude = ["spikes"]
 # Resolver 3 prefers dependency versions that build with `rust-version`.
 resolver = "3"
 

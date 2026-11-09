@@ -10,13 +10,17 @@ solana_version = "4.1.2"
 resolution = true
 skip-lint = false
 
-# The address in `declare_id!`, on every cluster. Devnet deploys go through
-# scripts/deploy-devnet.sh, never `anchor deploy` (see README).
+# The address in `declare_id!`, on every cluster. raffles deploys to devnet
+# through scripts/deploy-devnet.sh, never `anchor deploy` (see README).
+# vrf_spike, the PIG-114 spike, deploys with a plain `solana program deploy`
+# (docs/spikes/pig-114-vrf-on-devnet.md).
 [programs.localnet]
 raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"
+vrf_spike = "VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw"
 
 [programs.devnet]
 raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"
+vrf_spike = "VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw"
 
 [provider]
 cluster = "localnet"
