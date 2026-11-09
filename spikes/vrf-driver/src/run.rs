@@ -4,18 +4,19 @@
 
 use {
     crate::{
-        chain::{Chain, Landed, POLL},
-        observe::percentiles,
+        chain::{Chain, POLL},
+        observe::{fetch, orao_instructions, percentiles},
     },
-    anchor_lang::prelude::Pubkey,
+    anchor_lang::{prelude::Pubkey, Discriminator},
     anyhow::{bail, Context, Result},
-    orao_solana_vrf::state::RandomnessV2,
+    orao_solana_vrf::{instruction::FulfillV2, state::RandomnessV2},
     serde::Serialize,
     solana_commitment_config::CommitmentConfig,
     solana_rpc_client::rpc_client::GetConfirmedSignaturesForAddress2Config,
     solana_signer::Signer,
     solana_system_interface::instruction::transfer,
     std::{
+        collections::HashSet,
         fs::File,
         io::Write,
         path::PathBuf,
@@ -234,7 +235,7 @@ async fn cycle(chain: &Chain, args: &Args, accounts: &Accounts, record: &mut Rec
     // Fulfilled: from here on only consume can fail the cycle, and the metrics
     // below are best effort.
     record.outcome = Outcome::ConsumeFailed;
-    if let Some((fulfill_slot, responses)) = fulfillments(chain, &request, &landed, *quorum).await {
+    if let Some((fulfill_slot, responses)) = fulfillments(chain, &request, *quorum).await {
         record.fulfill_slot = Some(fulfill_slot);
         record.responses = Some(responses);
         record.latency_slots = fulfill_slot.checked_sub(landed.slot);
@@ -274,16 +275,14 @@ async fn consumed_value(chain: &Chain, draw: &Pubkey, slot: u64) -> Option<[u8; 
 }
 
 /// The slot of the fulfillment that completed the quorum, and how many
-/// authorities' fulfillments landed. The RPC indexes signatures behind the
+/// authorities' fulfillments landed. Only ORAO `fulfill_v2` instructions that
+/// name the request count, since anyone can send a transaction that touches
+/// it, a `consume` of the draw included. The RPC indexes signatures behind the
 /// account state, so it polls until the history shows the whole quorum, and
 /// gives `None` rather than a partial count.
-async fn fulfillments(
-    chain: &Chain,
-    request: &Pubkey,
-    landed: &Landed,
-    quorum: usize,
-) -> Option<(u64, usize)> {
-    let request_signature = landed.signature.to_string();
+async fn fulfillments(chain: &Chain, request: &Pubkey, quorum: usize) -> Option<(u64, usize)> {
+    let mut read = HashSet::new();
+    let mut slots = Vec::new();
     for _ in 0..HISTORY_POLLS {
         let history = chain
             .rpc
@@ -297,14 +296,28 @@ async fn fulfillments(
             )
             .await;
         if let Ok(history) = history {
-            let slots: Vec<u64> = history
-                .iter()
-                .filter(|status| status.err.is_none() && status.signature != request_signature)
-                .map(|status| status.slot)
-                .collect();
-            if slots.len() >= quorum {
-                return slots.iter().max().map(|&slot| (slot, slots.len()));
+            for status in history.iter().filter(|status| status.err.is_none()) {
+                // Read each transaction once; `fetch` already retries.
+                if !read.insert(status.signature.clone()) {
+                    continue;
+                }
+                let Ok(signature) = status.signature.parse() else {
+                    continue;
+                };
+                let Ok(transaction) = fetch(chain, &signature).await else {
+                    continue;
+                };
+                if orao_instructions(&transaction).iter().any(|(data, named)| {
+                    named == request && data.starts_with(FulfillV2::DISCRIMINATOR)
+                }) {
+                    slots.push(status.slot);
+                }
             }
+        }
+        if slots.len() >= quorum {
+            // The fulfillment that completed the quorum, not a later one.
+            slots.sort_unstable();
+            return slots.get(quorum - 1).map(|&slot| (slot, slots.len()));
         }
         tokio::time::sleep(POLL).await;
     }

@@ -151,7 +151,7 @@ pub async fn observe(chain: &Chain, txs: usize) -> Result<()> {
 }
 
 /// Reads a transaction, backing off while the RPC rate-limits.
-async fn fetch(
+pub async fn fetch(
     chain: &Chain,
     signature: &Signature,
 ) -> Result<EncodedConfirmedTransactionWithStatusMeta> {
@@ -186,7 +186,7 @@ async fn fetch(
 
 /// ORAO instructions in a transaction, top-level and inner (a program
 /// requesting by CPI), with the request account each one names.
-fn orao_instructions(
+pub fn orao_instructions(
     transaction: &EncodedConfirmedTransactionWithStatusMeta,
 ) -> Vec<(Vec<u8>, Pubkey)> {
     let Some(decoded) = transaction.transaction.transaction.decode() else {
