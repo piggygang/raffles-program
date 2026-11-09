@@ -6,6 +6,8 @@ So far the program has a single scaffold instruction, `hello`. The repo is pure 
 
 `programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet. Its end-to-end devnet measurement is still to run. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
 
+`scripts/fixtures` builds devnet stand-ins for the Piggy collections, prize assets and test wallets, with mainnet's on-chain structure (PIG-115). See [scripts/fixtures/README.md](scripts/fixtures/README.md).
+
 `programs/claim-spike` is the PIG-133 spike: `claim_entries`' holder proofs and receipts, measured on LiteSVM for transaction size and compute units. It goes once PIG-84 lands the real claim. The findings are in [docs/spikes/pig-133-claim-entries-budget.md](docs/spikes/pig-133-claim-entries-budget.md).
 
 | Cluster | Program ID |
@@ -71,6 +73,8 @@ The claim spike's tests decode real pigs: a SOL Gang and a Girl Gang metadata ac
 cargo test -p claim-spike --test integration budget -- --nocapture --test-threads 1
 ```
 
+Its `stand_ins` test runs the fixture set (PIG-115) through `claim_entries`: each stand-in passes and each look-alike fails. The accounts come from `scripts/fixtures/localnet.sh`, which builds the set on a local validator.
+
 CI runs:
 
 ```sh
@@ -89,6 +93,8 @@ cd spikes/vrf-driver
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 ```
+
+`scripts/fixtures` is one too. CI runs the same two commands there, plus `cargo test --locked`.
 
 ## Deploy to devnet
 
@@ -123,8 +129,9 @@ No key ever enters the repo. `*-keypair.json` is gitignored as a backstop.
 | Program keypair (`RAFA…`) | `~/.config/solana/piggygang/raffles-program-devnet.json` | The first devnet deploy only |
 | Devnet upgrade authority | `~/.config/solana/piggygang/raffles-devnet-authority.json` | Every devnet deploy; it also pays, so keep a few SOL on it |
 | Spike program keypair (`VRFs…`) | `~/.config/solana/piggygang/vrf-spike-program-devnet.json` | The spike's first devnet deploy (PIG-114) |
+| Devnet fixtures seed | `~/.config/solana/piggygang/devnet-fixtures-seed.json` | `scripts/fixtures` on devnet: every fixture key derives from it (PIG-115) |
 
-The raffles keys are team secrets. Their canonical copies live in the team password manager: copy them to the paths above, or point `RAFFLES_PROGRAM_KEYPAIR` and `RAFFLES_DEVNET_AUTHORITY` at them. After the first deploy, the program keypair has no further use, because the address is permanent and only the upgrade authority can change the program. If the authority doesn't exist yet, create it once and store it in the password manager:
+The raffles keys and the fixtures seed are team secrets. Their canonical copies live in the team password manager: copy them to the paths above. You can also point `RAFFLES_PROGRAM_KEYPAIR` and `RAFFLES_DEVNET_AUTHORITY` at the raffles keys, and `--seed-file` at the seed. After the first deploy, the program keypair has no further use, because the address is permanent and only the upgrade authority can change the program. If the authority doesn't exist yet, create it once and store it in the password manager:
 
 ```sh
 solana-keygen new -o ~/.config/solana/piggygang/raffles-devnet-authority.json
@@ -153,6 +160,7 @@ programs/raffles/tests/fixtures/      Token Metadata and mpl-core dumped from ma
 programs/vrf-spike/                   PIG-114 spike program, its tests and ORAO fixtures
 programs/claim-spike/                 PIG-133 spike program, its tests and mainnet pig fixtures
 spikes/vrf-driver/                    PIG-114 devnet driver (its own workspace)
+scripts/fixtures/                     PIG-115 devnet fixtures (its own workspace) and their outputs
 docs/spikes/                          spike write-ups
 scripts/                              deploy-devnet.sh and the fixture dumps (dump-*.sh)
 ```

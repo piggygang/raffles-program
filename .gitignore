@@ -2,6 +2,7 @@
 # the build generates. The program keypair never lives in the repo.
 /target
 /spikes/*/target
+/scripts/*/target
 /.anchor
 # Ledgers of `anchor localnet`, if anyone starts one.
 /test-ledger

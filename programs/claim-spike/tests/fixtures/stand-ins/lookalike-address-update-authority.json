@@ -1,0 +1,14 @@
+{
+  "account": {
+    "data": [
+      "AZINB/pv+7QSQBqCatu6eofwqMxCJR2HxmNcHl0LvOagAd17ByybPce+wdgrsrni4bwtfV8vZIlnzQ8cUP4wxcJlGQAAAExvb2stYWxpa2U6IG5vIGNvbGxlY3Rpb25WAAAAaHR0cHM6Ly9wdWItYjFhNDU3NjNmMGE2NGQ4ZmEyNzFmNjZmNTUxNGE1NjEucjIuZGV2L21ldGFkYXRhL2E1ZmU2MzUwZmI3ZGFjZDA0ZmM5Lmpzb24A",
+      "base64"
+    ],
+    "executable": false,
+    "lamports": 3685440,
+    "owner": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+    "rentEpoch": 18446744073709551615,
+    "space": 186
+  },
+  "pubkey": "E7dSR5AjZKNenf4wYWe2h9PMpiKstJm951thvRShvUke"
+}

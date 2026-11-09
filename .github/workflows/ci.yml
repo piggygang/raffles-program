@@ -105,6 +105,25 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
 
+  # The PIG-115 fixtures tool, its own workspace too.
+  fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: scripts/fixtures
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: scripts/fixtures
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
   # The Docker build scripts/deploy-devnet.sh deploys, so its hash for a commit
   # is the hash of that commit on devnet.
   verifiable:

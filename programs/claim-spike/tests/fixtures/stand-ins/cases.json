@@ -1,0 +1,98 @@
+{
+  "cases": [
+    {
+      "accepted": true,
+      "file": "test-sol-gang-1",
+      "name": "Test SOL Gang #1",
+      "rule_slot": 0
+    },
+    {
+      "accepted": true,
+      "file": "test-girl-gang-1",
+      "name": "Test Girl Gang #1",
+      "rule_slot": 1
+    },
+    {
+      "accepted": true,
+      "file": "test-piggy-gang-1",
+      "name": "Test Piggy Gang #1",
+      "rule_slot": 2
+    },
+    {
+      "accepted": false,
+      "file": "test-sol-gang-1",
+      "name": "Test SOL Gang #1 under the Girl Gang rule",
+      "rule_slot": 1
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-unverified-creator",
+      "name": "look-alike unverified-creator: The creator is present but unverified, like mainnet's #293.",
+      "rule_slot": 0
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-wrong-symbol",
+      "name": "look-alike wrong-symbol: The right creator and update authority, but symbol PSGX.",
+      "rule_slot": 0
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-wrong-update-authority",
+      "name": "look-alike wrong-update-authority: The creator verified and symbol PSG, but another update authority.",
+      "rule_slot": 0
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-honorary",
+      "name": "look-alike honorary: The creator verified, but as its own update authority and with symbol HPSG, like Honorary Piggy 1.",
+      "rule_slot": 0
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-pig-mud",
+      "name": "look-alike pig-mud: A Test Pig Mud pig: the same update authority, another verified creator.",
+      "rule_slot": 0
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-other-collection",
+      "name": "look-alike other-collection: A Core asset in another collection.",
+      "rule_slot": 2
+    },
+    {
+      "accepted": false,
+      "file": "lookalike-address-update-authority",
+      "name": "look-alike address-update-authority: A Core asset whose update authority is an address.",
+      "rule_slot": 2
+    }
+  ],
+  "membership_rules": [
+    {
+      "address": "3xTYTSyfTJr7SjXRSNEEj3V2LhVYsAKQwFwWFnJY4wi6",
+      "collection": "test-sol-gang",
+      "kind": 0,
+      "slot": 0,
+      "symbol": "PSG",
+      "update_authority": "FuZuetLuGgS95HQdUsuzLj9msYquTj8zAhCzckBvPgp4"
+    },
+    {
+      "address": "3xTYTSyfTJr7SjXRSNEEj3V2LhVYsAKQwFwWFnJY4wi6",
+      "collection": "test-girl-gang",
+      "kind": 0,
+      "slot": 1,
+      "symbol": "PGG",
+      "update_authority": "FuZuetLuGgS95HQdUsuzLj9msYquTj8zAhCzckBvPgp4"
+    },
+    {
+      "address": "CMcNHDaBi83nYskstCdHwFAkkqf7Y1h4vCg5HqUjp6Ft",
+      "collection": "test-piggy-gang",
+      "kind": 1,
+      "slot": 2,
+      "symbol": null,
+      "update_authority": null
+    }
+  ],
+  "root": "B6hfkkg1VASB3HP2uwSsQesho7M3ZHNxAaWfJQVAFmxx",
+  "written_by": "scripts/fixtures dump"
+}
