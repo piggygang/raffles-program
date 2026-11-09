@@ -35,7 +35,9 @@ jobs:
           for manifest in programs/*/Cargo.toml spikes/vrf-driver/Cargo.toml; do
             grep -qF "anchor-lang = \"=$ANCHOR_VERSION\"" "$manifest"
           done
-          grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" programs/raffles/Cargo.toml
+          for manifest in programs/raffles/Cargo.toml programs/claim-spike/Cargo.toml; do
+            grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" "$manifest"
+          done
 
       # Switchboard asks for `solana-program >=3`, which a plain `cargo update`
       # resolves to the newest major: a second Solana SDK next to the 3.x that
