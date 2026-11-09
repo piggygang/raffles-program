@@ -112,10 +112,10 @@ cargo run -- --cluster <devnet|localnet> <command>
 
    The manifest records the seed's root address. `apply` refuses to overwrite a manifest that another seed wrote, unless you pass `--new-seed`.
 
-2. **The payer.** It needs about 6.7 SOL for a fresh run:
+2. **The payer.** It needs about 6.7 SOL for a fresh run, measured on a local validator at devnet's rent:
    - 4.3 SOL for the wallets
-   - about 2.2 SOL for the 117 Token Metadata NFTs: rent plus Token Metadata's protocol fee of 0.01 SOL per create
-   - 0.2 SOL for the 66 Core assets: rent plus mpl-core's 0.0015 SOL each
+   - 2.2 SOL for 130 Token Metadata creates, the 129 NFTs and the prize token: Token Metadata's protocol fee of 0.01 SOL each, plus rent
+   - 0.2 SOL for the 66 Core assets and their 3 collections: mpl-core's fee of 0.0015 SOL per asset, plus rent
 
    A rerun costs only what it fixes. Set `RAFFLES_DEVNET_RPC_URL` to a Helius devnet URL, because the public endpoint rate-limits.
 

@@ -13,13 +13,17 @@ mod output;
 mod spec;
 
 use {
-    anyhow::{bail, Result},
+    anyhow::{anyhow, bail, Result},
     chain::Chain,
     clap::{Parser, Subcommand, ValueEnum},
     keys::Keys,
+    solana_keypair::Keypair,
     solana_signer::Signer,
     spec::{Authority, Spec, Wallet},
-    std::path::{Path, PathBuf},
+    std::{
+        io::Write,
+        path::{Component, Path, PathBuf},
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -93,7 +97,14 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // An RPC error quotes the URL, which can carry an API key. Errors go out as
+    // one redacted line, without the sources that quote it.
+    run(Cli::parse())
+        .await
+        .map_err(|err| anyhow!(redact(&causes(&err))))
+}
+
+async fn run(cli: Cli) -> Result<()> {
     let cluster = cli.cluster;
     let keys = match cluster {
         Cluster::Devnet => Keys::from_file(&expand(&cli.seed_file))?,
@@ -152,8 +163,8 @@ async fn main() -> Result<()> {
             println!("Wrote {}.", out.display());
         }
         Command::Keys { out } => {
-            let out = std::path::absolute(expand(&out.to_string_lossy()))?;
-            if out.starts_with(repo().canonicalize()?) || out.starts_with(repo()) {
+            let out = resolve(&expand(&out.to_string_lossy()))?;
+            if out.starts_with(repo().canonicalize()?) {
                 bail!("{} is inside the repo; keys stay outside it", out.display());
             }
             std::fs::create_dir_all(&out)?;
@@ -167,9 +178,7 @@ async fn main() -> Result<()> {
                     )
                 }));
             for (name, keypair) in keypairs {
-                let path = out.join(format!("{name}.json"));
-                std::fs::write(&path, serde_json::to_string(&keypair.to_bytes().to_vec())?)?;
-                restrict(&path)?;
+                write_keypair(&out.join(format!("{name}.json")), &keypair)?;
             }
             println!(
                 "Wrote the {} keypairs to {}.",
@@ -207,13 +216,105 @@ fn expand(path: &str) -> PathBuf {
     }
 }
 
-/// Keypair files are readable by their owner only.
-fn restrict(path: &Path) -> Result<()> {
+/// Where `path` leads, even if it doesn't exist yet: absolute, with each `..`
+/// and symlink resolved one component at a time.
+fn resolve(path: &Path) -> Result<PathBuf> {
+    let mut resolved = PathBuf::new();
+    for component in std::path::absolute(path)?.components() {
+        match component {
+            Component::CurDir => {}
+            // What's resolved so far holds no symlink, so its parent is real.
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            _ => {
+                resolved.push(component);
+                if resolved.exists() {
+                    resolved = resolved.canonicalize()?;
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+/// Writes a keypair file only its owner can read, as `solana-keygen` does.
+fn write_keypair(path: &Path, keypair: &Keypair) -> Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    // The mode applies only to a new file. An existing one is narrowed before
+    // the key goes in.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
-    let _ = path;
+    file.write_all(serde_json::to_string(&keypair.to_bytes().to_vec())?.as_bytes())?;
     Ok(())
+}
+
+/// The error and its causes on one line. A client error prints the same
+/// message as its kind, so repeats are dropped.
+fn causes(err: &anyhow::Error) -> String {
+    let mut causes: Vec<String> = err.chain().map(ToString::to_string).collect();
+    causes.dedup();
+    causes.join(": ")
+}
+
+/// `text` with each URL cut back to its scheme and host: an RPC URL can carry
+/// an API key in its user info, path or query.
+fn redact(text: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (before, after) = rest.split_at(at + 3);
+        redacted.push_str(before);
+        let end = after
+            .find(|c: char| c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '<' | '>'))
+            .unwrap_or(after.len());
+        let (url, tail) = after.split_at(end);
+        let (authority, path) = url.split_at(url.find(['/', '?', '#']).unwrap_or(url.len()));
+        redacted.push_str(authority.rsplit('@').next().unwrap_or_default());
+        redacted.push_str(if path.len() > 1 { "/[redacted]" } else { path });
+        rest = tail;
+    }
+    redacted.push_str(rest);
+    redacted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_keeps_only_scheme_and_host() {
+        assert_eq!(
+            redact(
+                "error sending request for url (https://devnet.helius-rpc.com/?api-key=SECRET): \
+                 tcp connect error"
+            ),
+            "error sending request for url (https://devnet.helius-rpc.com/[redacted]): tcp \
+             connect error"
+        );
+        assert_eq!(
+            redact("https://user:SECRET@rpc.example:8899/v2/SECRET and http://127.0.0.1:8899/"),
+            "https://rpc.example:8899/[redacted] and http://127.0.0.1:8899/"
+        );
+        assert_eq!(redact("no URL here"), "no URL here");
+    }
+
+    #[test]
+    fn resolve_follows_dot_dot_out_of_missing_directories() {
+        let repo = repo().canonicalize().unwrap();
+        assert_eq!(
+            resolve(&repo.join("scripts/missing/../../keys")).unwrap(),
+            repo.join("keys")
+        );
+    }
 }
