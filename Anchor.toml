@@ -13,10 +13,12 @@ skip-lint = false
 # The address in `declare_id!`, on every cluster. raffles deploys to devnet
 # through scripts/deploy-devnet.sh, never `anchor deploy` (see README).
 # vrf_spike, the PIG-114 spike, deploys with a plain `solana program deploy`
-# (docs/spikes/pig-114-vrf-on-devnet.md).
+# (docs/spikes/pig-114-vrf-on-devnet.md). claim_spike, the PIG-133 spike, runs
+# only in LiteSVM and never deploys.
 [programs.localnet]
 raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"
 vrf_spike = "VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw"
+claim_spike = "CLMsQPHKpKDBUnKGEYeKR3AtRq3HKtU5BrdSfDrEGSz1"
 
 [programs.devnet]
 raffles = "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM"

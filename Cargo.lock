@@ -955,6 +955,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "claim-spike"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "base64 0.22.1",
+ "bincode",
+ "litesvm",
+ "serde_json",
+ "solana-account",
+ "solana-address-lookup-table-interface",
+ "solana-compute-budget-interface",
+ "solana-keypair",
+ "solana-message 4.4.1",
+ "solana-signer",
+ "solana-transaction",
+]
+
+[[package]]
 name = "cmov"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3177,6 +3196,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_bytes"
 version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3931,6 +3959,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b7d34343838343a3755b7dfb1e438d94c6db2263b519cfe3c2257af932b6e93"
 dependencies = [
  "num-traits",
+ "serde",
+ "serde_derive",
  "solana-program-error",
 ]
 
@@ -4102,6 +4132,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e29e655f222a3a64145fedceacdca3e696ba7aded1dbd5391aa09d5fbfba53c"
 dependencies = [
  "blake3",
+ "serde",
+ "serde_derive",
  "solana-address 2.6.1",
  "solana-hash 4.5.0",
  "solana-instruction",
@@ -4569,6 +4601,8 @@ dependencies = [
  "ed25519-dalek 2.2.0",
  "five8",
  "serde",
+ "serde-big-array",
+ "serde_derive",
  "solana-sanitize",
  "wincode",
 ]
@@ -4927,6 +4961,8 @@ version = "4.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8008008a75246adaf8b67411093a6d78db8232c74b00eff6041fd1da73679e7"
 dependencies = [
+ "serde",
+ "serde_derive",
  "solana-address 2.6.1",
  "solana-hash 4.5.0",
  "solana-instruction",
@@ -4964,6 +5000,8 @@ version = "3.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "054e54d15164b0c34cb744600a1a0330e9fd97a12d979f2eb95904c807a07713"
 dependencies = [
+ "serde",
+ "serde_derive",
  "solana-instruction-error",
  "solana-sanitize",
 ]

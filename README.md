@@ -6,12 +6,14 @@ So far the program has a single scaffold instruction, `hello`. The repo is pure 
 
 `programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet. Its end-to-end devnet measurement is still to run. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
 
+`programs/claim-spike` is the PIG-133 spike: `claim_entries`' holder proofs and receipts, measured on LiteSVM for transaction size and compute units. It goes once PIG-84 lands the real claim. The findings are in [docs/spikes/pig-133-claim-entries-budget.md](docs/spikes/pig-133-claim-entries-budget.md).
+
 | Cluster | Program ID |
 | --- | --- |
 | devnet | `RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM` |
 | mainnet | gets its own program ID at launch |
 
-The spike program is devnet-only, at `VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw`.
+The VRF spike program is devnet-only, at `VRFsDurdc8NMVFAS5G8XVGzGjnBkRm1Rv7ZiEckYUCw`. The claim spike runs only in LiteSVM, at `CLMsQPHKpKDBUnKGEYeKR3AtRq3HKtU5BrdSfDrEGSz1`, and no keypair exists for it.
 
 ## Toolchain
 
@@ -44,7 +46,7 @@ If the active Solana CLI isn't 4.1.2, Anchor switches to it for each command and
 anchor build --ignore-keys
 ```
 
-This builds `target/deploy/raffles.so` and the IDL at `target/idl/raffles.json`, and the same for the spike program.
+This builds `target/deploy/raffles.so` and the IDL at `target/idl/raffles.json`, and the same for the spike programs.
 
 `--ignore-keys` is deliberate. Anchor compares `declare_id!` against `target/deploy/raffles-keypair.json`, a random key that the build generates when none exists. The real program keypair never enters the repo, so that check can only ever fail. **Never run `anchor keys sync` or `anchor deploy`**: the first rewrites the program ID to the throwaway key, and the second deploys to it.
 
@@ -61,7 +63,13 @@ The VM also runs Token Metadata and mpl-core: their mainnet bytecode, dumped int
 
 The tests are one binary, `programs/raffles/tests/integration`, with a module per area and a shared `harness`. Add new areas as modules there, not as new files in `tests/`, so LiteSVM links once.
 
-The spike's tests run the ORAO VRF program dumped from devnet, with test keys in place of ORAO's fulfillment authorities, so request, fulfill and consume all run for real. `scripts/dump-vrf-spike-fixtures.sh` refreshes the dump.
+The VRF spike's tests run the ORAO VRF program dumped from devnet, with test keys in place of ORAO's fulfillment authorities, so request, fulfill and consume all run for real. `scripts/dump-vrf-spike-fixtures.sh` refreshes the dump.
+
+The claim spike's tests decode real pigs: a SOL Gang and a Girl Gang metadata account and a Piggy Gang Core asset, copied from mainnet into `programs/claim-spike/tests/fixtures` by `scripts/dump-claim-spike-fixtures.sh`. Its `budget` module runs each batch at 8 address seeds, which takes the suite to about 15 s, and prints the measurement tables:
+
+```sh
+cargo test -p claim-spike --test integration budget -- --nocapture --test-threads 1
+```
 
 CI runs:
 
@@ -143,7 +151,8 @@ programs/raffles/src/                 the program
 programs/raffles/tests/integration/   LiteSVM tests: harness and one module per area
 programs/raffles/tests/fixtures/      Token Metadata and mpl-core dumped from mainnet
 programs/vrf-spike/                   PIG-114 spike program, its tests and ORAO fixtures
+programs/claim-spike/                 PIG-133 spike program, its tests and mainnet pig fixtures
 spikes/vrf-driver/                    PIG-114 devnet driver (its own workspace)
 docs/spikes/                          spike write-ups
-scripts/                              deploy-devnet.sh, dump-fixtures.sh, dump-vrf-spike-fixtures.sh
+scripts/                              deploy-devnet.sh and the fixture dumps (dump-*.sh)
 ```
