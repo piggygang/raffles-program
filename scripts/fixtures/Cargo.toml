@@ -39,3 +39,7 @@ solana-transaction = "4"
 spl-associated-token-account-interface = "2"
 spl-token-interface = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+# O_NOFOLLOW, for the keypair files `keys` writes.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

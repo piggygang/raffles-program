@@ -13,7 +13,7 @@ mod output;
 mod spec;
 
 use {
-    anyhow::{anyhow, bail, Result},
+    anyhow::{anyhow, bail, Context, Result},
     chain::Chain,
     clap::{Parser, Subcommand, ValueEnum},
     keys::Keys,
@@ -71,7 +71,11 @@ struct Cli {
 enum Command {
     /// Writes the manifest, the indexer config and the mint lists. Needs no
     /// network.
-    Plan,
+    Plan {
+        /// Replaces a manifest that another seed wrote.
+        #[arg(long)]
+        new_seed: bool,
+    },
     /// Creates what's missing, returns what wandered, checks the result and
     /// writes the outputs. Sends transactions.
     Apply {
@@ -119,21 +123,13 @@ async fn run(cli: Cli) -> Result<()> {
     });
 
     match cli.command {
-        Command::Plan => {
+        Command::Plan { new_seed } => {
+            check_root(&dir, &keys, new_seed)?;
             output::write(&dir, cluster, &keys, &spec)?;
             println!("Wrote {}.", dir.display());
         }
         Command::Apply { new_seed } => {
-            if let Some(root) = output::manifest_root(&dir)? {
-                if root != keys.root() && !new_seed {
-                    bail!(
-                        "{} was written with another seed (root {root}, this one is {}). Use \
-                         that seed, or pass --new-seed to replace the fixture set",
-                        dir.display(),
-                        keys.root()
-                    );
-                }
-            }
+            check_root(&dir, &keys, new_seed)?;
             let chain = Chain::new(&url, Some(&expand(&cli.keypair)))?;
             chain.require(cluster).await?;
             let payer = chain.payer().pubkey();
@@ -184,6 +180,23 @@ async fn run(cli: Cli) -> Result<()> {
                 "Wrote the {} keypairs to {}.",
                 cluster.name(),
                 out.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Refuses to replace a manifest that another seed wrote, unless `--new-seed`
+/// says so: once the manifest names the wrong seed, `apply` with it would build
+/// a second fixture set.
+fn check_root(dir: &Path, keys: &Keys, new_seed: bool) -> Result<()> {
+    if let Some(root) = output::manifest_root(dir)? {
+        if root != keys.root() && !new_seed {
+            bail!(
+                "{} was written with another seed (root {root}, this one is {}). Use that \
+                 seed, or pass --new-seed to replace the fixture set",
+                dir.display(),
+                keys.root()
             );
         }
     }
@@ -245,9 +258,13 @@ fn write_keypair(path: &Path, keypair: &Keypair) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        // A symlink in the file's place could point anywhere, the repo
+        // included, so the open refuses one.
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file = options.open(path)?;
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("writing {} (a symlink there is refused)", path.display()))?;
     // The mode applies only to a new file. An existing one is narrowed before
     // the key goes in.
     #[cfg(unix)]

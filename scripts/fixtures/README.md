@@ -110,7 +110,7 @@ cargo run -- --cluster <devnet|localnet> <command>
    solana-keygen new --no-bip39-passphrase -o ~/.config/solana/piggygang/devnet-fixtures-seed.json
    ```
 
-   The manifest records the seed's root address. `apply` refuses to overwrite a manifest that another seed wrote, unless you pass `--new-seed`.
+   The manifest records the seed's root address. `plan` and `apply` refuse to overwrite a manifest that another seed wrote, unless you pass `--new-seed`.
 
 2. **The payer.** It needs about 6.7 SOL for a fresh run, measured on a local validator at devnet's rent:
    - 4.3 SOL for the wallets
@@ -134,7 +134,7 @@ scripts/fixtures/localnet.sh          # build on a fresh validator, dump, stop
 scripts/fixtures/localnet.sh --keep   # leave the validator on :8899
 ```
 
-- **The validator:** Token Metadata and mpl-core load from `programs/raffles/tests/fixtures`, the bytes the LiteSVM tests run, so no network is needed. The localnet seed is public, and a throwaway payer is airdropped 50 SOL, since `solana-test-validator`'s rent is higher than devnet's.
+- **The validator:** Token Metadata and mpl-core load from `programs/raffles/tests/fixtures`, the bytes the LiteSVM tests run, so no network is needed. The localnet seed is public, and a throwaway payer is airdropped 50 SOL, since `solana-test-validator`'s rent is higher than devnet's. The script refuses to start while another validator answers on :8899, such as one left by `--keep`.
 - **What the script writes:**
   - `scripts/fixtures/localnet/`
   - `programs/claim-spike/tests/fixtures/stand-ins/`, which `cargo test` runs through the spike's `claim_entries`. Each stand-in must pass and each look-alike must fail with `RuleMismatch` (`stand_ins_pass_the_rule_and_lookalikes_fail_it`).

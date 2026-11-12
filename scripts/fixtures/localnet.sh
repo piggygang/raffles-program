@@ -12,6 +12,12 @@ cd "$(dirname "$0")/../.."
 
 keep=false
 [[ ${1:-} == --keep ]] && keep=true
+url=http://127.0.0.1:8899
+# The readiness check below can't tell validators apart.
+if solana cluster-version --url "$url" >/dev/null 2>&1; then
+  echo "A validator already answers on $url (one left by --keep?); stop it first." >&2
+  exit 1
+fi
 programs=programs/raffles/tests/fixtures
 work=$(mktemp -d)
 solana-test-validator --reset --quiet --ledger "$work/ledger" \
@@ -20,7 +26,9 @@ solana-test-validator --reset --quiet --ledger "$work/ledger" \
   >"$work/validator.log" 2>&1 &
 validator=$!
 cleanup() {
-  if ! $keep; then
+  if $keep && kill -0 "$validator" 2>/dev/null; then
+    echo "The validator (pid $validator) keeps running on $url; its ledger is $work/ledger."
+  else
     kill "$validator" 2>/dev/null || true
     wait "$validator" 2>/dev/null || true
     rm -rf "$work"
@@ -28,12 +36,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-url=http://127.0.0.1:8899
 for _ in $(seq 60); do
+  kill -0 "$validator" 2>/dev/null || break
   solana cluster-version --url "$url" >/dev/null 2>&1 && break
   sleep 1
 done
-solana cluster-version --url "$url" >/dev/null || { cat "$work/validator.log" >&2; exit 1; }
+# Ready while this validator still runs, so the RPC is its own.
+if ! kill -0 "$validator" 2>/dev/null || ! solana cluster-version --url "$url" >/dev/null 2>&1; then
+  cat "$work/validator.log" >&2
+  exit 1
+fi
 
 # A throwaway payer: localnet SOL is free.
 solana-keygen new --no-bip39-passphrase --silent -o "$work/payer.json" >/dev/null
@@ -43,7 +55,3 @@ fixtures=(cargo run --quiet --manifest-path scripts/fixtures/Cargo.toml --
   --cluster localnet --url "$url" --keypair "$work/payer.json")
 "${fixtures[@]}" apply
 "${fixtures[@]}" dump --out programs/claim-spike/tests/fixtures/stand-ins
-
-if $keep; then
-  echo "The validator (pid $validator) keeps running on $url; its ledger is $work/ledger."
-fi

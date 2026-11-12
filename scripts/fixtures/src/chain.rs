@@ -150,30 +150,38 @@ impl Chain {
                     },
                 )
                 .await?;
-            // An RPC error here is transient (a rate limit, a timeout): poll
-            // again until the blockhash has expired.
+            // Re-signing is safe only once the blockhash has expired with the
+            // transaction nowhere; otherwise both could land. Nothing lands
+            // after its blockhash expires, so a status read after the height
+            // says expired is final.
             let deadline = Instant::now() + Duration::from_secs(120);
             loop {
                 tokio::time::sleep(POLL).await;
-                let status = match self.rpc.get_signature_statuses(&[signature]).await {
-                    Ok(response) => response.value.into_iter().flatten().next(),
-                    Err(_) => None,
-                };
-                if let Some(status) = status {
-                    if let Some(err) = status.err {
-                        bail!("{signature} failed: {err}");
-                    }
-                    if status.satisfies_commitment(CommitmentConfig::confirmed()) {
-                        return Ok(signature);
-                    }
-                }
                 let expired = self
                     .rpc
                     .get_block_height()
                     .await
                     .is_ok_and(|height| height > last_valid_block_height);
-                if expired || Instant::now() > deadline {
-                    break;
+                // An RPC error here is transient (a rate limit, a timeout).
+                if let Ok(response) = self.rpc.get_signature_statuses(&[signature]).await {
+                    match response.value.into_iter().flatten().next() {
+                        Some(status) => {
+                            if let Some(err) = status.err {
+                                bail!("{signature} failed: {err}");
+                            }
+                            if status.satisfies_commitment(CommitmentConfig::confirmed()) {
+                                return Ok(signature);
+                            }
+                        }
+                        None if expired => break,
+                        None => {}
+                    }
+                }
+                if Instant::now() > deadline {
+                    bail!(
+                        "{signature} is still unconfirmed, and its blockhash may not have \
+                         expired. Rerun in a minute: apply skips whatever landed"
+                    );
                 }
             }
         }
