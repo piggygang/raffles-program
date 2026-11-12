@@ -252,28 +252,26 @@ fn resolve(path: &Path) -> Result<PathBuf> {
 }
 
 /// Writes a keypair file only its owner can read, as `solana-keygen` does.
+///
+/// The key goes into a new file, which then takes the path's place. Writing
+/// into what is already there would follow a symlink or a hard link to
+/// anywhere, the repo included.
 fn write_keypair(path: &Path, keypair: &Keypair) -> Result<()> {
+    let new = path.with_added_extension("new");
+    // One left behind by a run that died would be in the way.
+    let _ = std::fs::remove_file(&new);
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // A symlink in the file's place could point anywhere, the repo
-        // included, so the open refuses one.
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        options.mode(0o600);
     }
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("writing {} (a symlink there is refused)", path.display()))?;
-    // The mode applies only to a new file. An existing one is narrowed before
-    // the key goes in.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    file.write_all(serde_json::to_string(&keypair.to_bytes().to_vec())?.as_bytes())?;
-    Ok(())
+    options
+        .open(&new)
+        .with_context(|| format!("writing {}", new.display()))?
+        .write_all(serde_json::to_string(&keypair.to_bytes().to_vec())?.as_bytes())?;
+    std::fs::rename(&new, path).with_context(|| format!("replacing {}", path.display()))
 }
 
 /// The error and its causes on one line. A client error prints the same
@@ -333,5 +331,35 @@ mod tests {
             resolve(&repo.join("scripts/missing/../../keys")).unwrap(),
             repo.join("keys")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_keypair_replaces_a_link_without_writing_through_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("fixtures-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // What a hard link and a symlink in a key's place lead to.
+        let target = dir.join("target");
+        std::fs::write(&target, "not a key").unwrap();
+        let (hard, soft) = (dir.join("hard.json"), dir.join("soft.json"));
+        std::fs::hard_link(&target, &hard).unwrap();
+        std::os::unix::fs::symlink(&target, &soft).unwrap();
+
+        let keypair = Keypair::new();
+        for path in [&hard, &soft] {
+            write_keypair(path, &keypair).unwrap();
+            let written = std::fs::symlink_metadata(path).unwrap();
+            assert!(written.is_file());
+            assert_eq!(written.permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                solana_keypair::read_keypair_file(path).unwrap().pubkey(),
+                keypair.pubkey()
+            );
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "not a key");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

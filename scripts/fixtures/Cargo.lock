@@ -1027,7 +1027,6 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
- "libc",
  "mpl-core",
  "mpl-token-metadata",
  "serde_json",

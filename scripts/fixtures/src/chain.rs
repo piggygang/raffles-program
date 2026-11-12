@@ -150,20 +150,34 @@ impl Chain {
                     },
                 )
                 .await?;
-            // Re-signing is safe only once the blockhash has expired with the
-            // transaction nowhere; otherwise both could land. Nothing lands
-            // after its blockhash expires, so a status read after the height
-            // says expired is final.
+            // Re-signing is safe only once the transaction can no longer land
+            // and never did; otherwise both could land. Two things show that.
+            // The blockhash has expired on the finalized chain, so a landing
+            // is in a block every node keeps. And a node that has reached that
+            // slot finds no status, in its ledger as well as among its recent
+            // ones. A node behind that slot proves nothing, and neither do
+            // recent statuses alone: a landed transaction drops out of them.
             let deadline = Instant::now() + Duration::from_secs(120);
             loop {
                 tokio::time::sleep(POLL).await;
-                let expired = self
+                // An RPC error in either call is transient (a rate limit, a
+                // timeout).
+                let expired_at = self
                     .rpc
-                    .get_block_height()
+                    .get_epoch_info_with_commitment(CommitmentConfig::finalized())
                     .await
-                    .is_ok_and(|height| height > last_valid_block_height);
-                // An RPC error here is transient (a rate limit, a timeout).
-                if let Ok(response) = self.rpc.get_signature_statuses(&[signature]).await {
+                    .ok()
+                    .filter(|finalized| finalized.block_height > last_valid_block_height)
+                    .map(|finalized| finalized.absolute_slot);
+                let statuses = match expired_at {
+                    Some(_) => {
+                        self.rpc
+                            .get_signature_statuses_with_history(&[signature])
+                            .await
+                    }
+                    None => self.rpc.get_signature_statuses(&[signature]).await,
+                };
+                if let Ok(response) = statuses {
                     match response.value.into_iter().flatten().next() {
                         Some(status) => {
                             if let Some(err) = status.err {
@@ -173,14 +187,16 @@ impl Chain {
                                 return Ok(signature);
                             }
                         }
-                        None if expired => break,
+                        None if expired_at.is_some_and(|slot| response.context.slot >= slot) => {
+                            break
+                        }
                         None => {}
                     }
                 }
                 if Instant::now() > deadline {
                     bail!(
-                        "{signature} is still unconfirmed, and its blockhash may not have \
-                         expired. Rerun in a minute: apply skips whatever landed"
+                        "{signature} is unresolved: the RPC shows it neither confirmed nor \
+                         expired without landing. Rerun in a minute: apply skips whatever landed"
                     );
                 }
             }
@@ -237,5 +253,111 @@ impl Chain {
             VersionedMessage::Legacy(message),
             &keys,
         )?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        serde_json::{json, Value},
+        solana_rpc_client::mock_sender::MocksMap,
+        solana_rpc_client_api::request::RpcRequest,
+    };
+
+    /// The last block height at which the mock RPC's blockhashes are valid.
+    const LAST_VALID: u64 = 100;
+    /// The finalized slot the mock RPC reports.
+    const FINALIZED: u64 = 500;
+
+    fn blockhash(seed: u8) -> Value {
+        json!({
+            "context": { "slot": 1 },
+            "value": {
+                "blockhash": Pubkey::new_from_array([seed; 32]).to_string(),
+                "lastValidBlockHeight": LAST_VALID,
+            },
+        })
+    }
+
+    /// A poll's two answers. The finalized chain is at `block_height`, and a
+    /// node at `slot` has the transaction finalized or finds nothing.
+    fn poll(block_height: u64, slot: u64, landed: bool) -> (Value, Value) {
+        let status = landed.then(|| {
+            json!({
+                "slot": 400,
+                "confirmations": null,
+                "status": { "Ok": null },
+                "err": null,
+                "confirmationStatus": "finalized",
+            })
+        });
+        (
+            json!({
+                "epoch": 1,
+                "slotIndex": 68,
+                "slotsInEpoch": 432,
+                "absoluteSlot": FINALIZED,
+                "blockHeight": block_height,
+            }),
+            json!({ "context": { "slot": slot }, "value": [status] }),
+        )
+    }
+
+    /// Sends a transfer through a mock RPC that answers `polls` in order. The
+    /// first transaction gets blockhash 2, a re-signed one blockhash 3.
+    async fn send(payer: &Keypair, polls: Vec<(Value, Value)>) -> Result<Signature> {
+        let mut mocks = MocksMap::default();
+        mocks.insert(
+            RpcRequest::SimulateTransaction,
+            json!({ "context": { "slot": 1 }, "value": { "unitsConsumed": 150 } }),
+        );
+        // The simulation takes blockhash 1.
+        for seed in 1..=3 {
+            mocks.insert(RpcRequest::GetLatestBlockhash, blockhash(seed));
+        }
+        for (finalized, status) in polls {
+            mocks.insert(RpcRequest::GetEpochInfo, finalized);
+            mocks.insert(RpcRequest::GetSignatureStatuses, status);
+        }
+        let chain = Chain {
+            rpc: RpcClient::new_mock_with_mocks_map("succeeds", mocks),
+            payer: Some(payer.insecure_clone()),
+        };
+        let transfer = solana_system_interface::instruction::transfer(
+            &payer.pubkey(),
+            &Pubkey::new_from_array([9; 32]),
+            1,
+        );
+        chain.send(&[transfer], &[]).await
+    }
+
+    #[tokio::test]
+    async fn send_resigns_only_after_a_caught_up_node_finds_nothing() -> Result<()> {
+        let payer = Keypair::new();
+        let landed = poll(LAST_VALID + 1, FINALIZED, true);
+        let (first, unexpired, behind, nowhere) = tokio::try_join!(
+            send(&payer, vec![landed.clone()]),
+            // Nothing yet, but the blockhash is still valid: it can land.
+            send(
+                &payer,
+                vec![poll(LAST_VALID, FINALIZED, false), landed.clone()]
+            ),
+            // Nothing at a node behind the expiry: that isn't final.
+            send(
+                &payer,
+                vec![poll(LAST_VALID + 1, FINALIZED - 1, false), landed.clone()]
+            ),
+            // Nothing at a node that reached it: the transaction never landed.
+            send(
+                &payer,
+                vec![poll(LAST_VALID + 1, FINALIZED, false), landed.clone()]
+            ),
+        )?;
+        // The same signature means the same blockhash: no second transaction.
+        assert_eq!(unexpired, first);
+        assert_eq!(behind, first);
+        assert_ne!(nowhere, first);
+        Ok(())
     }
 }
