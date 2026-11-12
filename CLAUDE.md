@@ -9,6 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **No AI attribution anywhere.** Never write `Co-Authored-By: Claude …`, "🤖 Generated with Claude Code" or anything similar, whether in commit messages, PR text or code comments.
 - **No key ever enters the repo**, not even a devnet one. Keys live under `~/.config/solana/piggygang/` (README, "Keys").
 
+## PR reviews
+
+- **Review comments get codebase fixes and replies.** Check each open thread against the current code and fix what still holds. Then write a reply for every thread: short, brief and straight to the point, saying what changed or why nothing did.
+- **Replies to CodeRabbit start with `@coderabbitai`.**
+
 ## Commands
 
 - `anchor build --ignore-keys`: builds `target/deploy/raffles.so` and `target/idl/raffles.json`. Always pass `--ignore-keys` (see Program ID below).
