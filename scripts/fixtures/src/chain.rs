@@ -1,11 +1,12 @@
 //! The RPC side: reading accounts in bulk, and landing transactions the way
 //! spikes/vrf-driver does. That means simulating to size the compute budget,
-//! sending, polling the signature, and re-signing with a fresh blockhash when
-//! one expires.
+//! sending, polling the signature, and re-signing with a fresh blockhash. This
+//! one re-signs only once the finalized chain rules the transaction out.
 
 use {
     crate::Cluster,
     anyhow::{anyhow, bail, Context, Result},
+    serde_json::json,
     solana_account::Account,
     solana_commitment_config::CommitmentConfig,
     solana_compute_budget_interface::ComputeBudgetInstruction,
@@ -14,7 +15,13 @@ use {
     solana_message::{Message, VersionedMessage},
     solana_pubkey::Pubkey,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
-    solana_rpc_client_api::config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
+    solana_rpc_client_api::{
+        config::{
+            RpcSendTransactionConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
+        },
+        request::RpcRequest,
+        response::RpcConfirmedTransactionStatusWithSignature,
+    },
     solana_signature::Signature,
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
@@ -34,6 +41,8 @@ const SEND_ATTEMPTS: u32 = 3;
 const MAX_COMPUTE_UNITS: u32 = 1_400_000;
 /// `getMultipleAccounts` takes at most 100 addresses.
 const ACCOUNTS_PER_CALL: usize = 100;
+/// `getSignaturesForAddress` lists at most 1,000 signatures.
+const SIGNATURES_PER_CALL: usize = 1_000;
 
 pub struct Chain {
     pub rpc: RpcClient,
@@ -137,8 +146,13 @@ impl Chain {
                 .rpc
                 .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
                 .await?;
-            // What the payer holds before the send, for `never_landed`.
+            // For `never_landed`: what the payer holds before the send, and a
+            // slot that is final by then.
             let balance = self.rpc.get_balance(&self.payer().pubkey()).await?;
+            let sent_after = self
+                .rpc
+                .get_slot_with_commitment(CommitmentConfig::finalized())
+                .await?;
             let message =
                 Message::new_with_blockhash(&all, Some(&self.payer().pubkey()), &blockhash);
             let transaction = self.sign(message, signers)?;
@@ -168,13 +182,16 @@ impl Chain {
                         }
                     }
                 }
-                if self.never_landed(last_valid_block_height, balance).await {
+                if self
+                    .never_landed(&signature, last_valid_block_height, balance, sent_after)
+                    .await
+                {
                     break;
                 }
                 if Instant::now() > deadline {
                     bail!(
-                        "{signature} is unresolved: the RPC shows it neither confirmed nor \
-                         expired without landing. Rerun in a minute: apply skips whatever landed"
+                        "{signature} is unresolved: it isn't confirmed, and the finalized chain \
+                         doesn't rule it out. Rerun in a minute: apply skips whatever landed"
                     );
                 }
             }
@@ -182,32 +199,71 @@ impl Chain {
         bail!("not confirmed with {SEND_ATTEMPTS} blockhashes")
     }
 
-    /// Whether a transaction whose blockhash is valid up to
-    /// `last_valid_block_height` can no longer land and never did. `balance` is
-    /// what its payer held before it was sent.
+    /// Whether the transaction `signature`, whose blockhash is valid up to
+    /// `last_valid_block_height`, can no longer land and never did. `balance`
+    /// is what its payer held before it was sent, and `sent_after` a slot that
+    /// was final by then.
     ///
-    /// Both answers come from the finalized chain, so it doesn't matter which
-    /// node gives them: none is on a fork there, and one that lags reports an
-    /// earlier slot. Past the blockhash's last block nothing lands any more.
-    /// And every transaction costs its payer a fee, so a payer that holds the
-    /// same balance at that slot or later paid for none: only a deposit of
-    /// exactly the transaction's cost could hide one. A missing status proves
-    /// less, since a node on a fork without the transaction has none either.
-    async fn never_landed(&self, last_valid_block_height: u64, balance: u64) -> bool {
-        let finalized = CommitmentConfig::finalized();
-        // An RPC error in either call is transient (a rate limit, a timeout):
-        // the answer is "not yet".
+    /// The finalized chain has to say three things. Whichever node answers,
+    /// none is on a fork there, and one that lags is at an earlier slot.
+    /// - It is past the blockhash's last block, so nothing lands any more.
+    /// - From that slot on, the payer's signatures since `sent_after` don't
+    ///   include this one: the transaction is nowhere on the chain.
+    /// - From that slot on, the payer holds `balance`, although every
+    ///   transaction costs its payer a fee. This is the weaker proof, since a
+    ///   deposit or a rollback can leave the balance whole, but it doesn't
+    ///   depend on the RPC's transaction history.
+    ///
+    /// A missing status proves less: a node on a fork without the transaction
+    /// has none either.
+    async fn never_landed(
+        &self,
+        signature: &Signature,
+        last_valid_block_height: u64,
+        balance: u64,
+        sent_after: u64,
+    ) -> bool {
+        let (payer, finalized) = (self.payer().pubkey(), CommitmentConfig::finalized());
+        // An RPC error in any of these calls is transient (a rate limit, a
+        // timeout): the answer is "not yet".
         let Ok(expiry) = self.rpc.get_epoch_info_with_commitment(finalized).await else {
             return false;
         };
-        expiry.block_height > last_valid_block_height
-            && self
-                .rpc
-                .get_balance_with_commitment(&self.payer().pubkey(), finalized)
-                .await
-                .is_ok_and(|payer| {
-                    payer.context.slot >= expiry.absolute_slot && payer.value == balance
-                })
+        if expiry.block_height <= last_valid_block_height {
+            return false;
+        }
+        let unpaid = self
+            .rpc
+            .get_balance_with_commitment(&payer, finalized)
+            .await
+            .is_ok_and(|now| now.context.slot >= expiry.absolute_slot && now.value == balance);
+        if !unpaid {
+            return false;
+        }
+        let config = RpcSignaturesForAddressConfig {
+            limit: Some(SIGNATURES_PER_CALL),
+            commitment: Some(finalized),
+            min_context_slot: Some(expiry.absolute_slot),
+            ..RpcSignaturesForAddressConfig::default()
+        };
+        let Ok(history) = self
+            .rpc
+            .send::<Vec<RpcConfirmedTransactionStatusWithSignature>>(
+                RpcRequest::GetSignaturesForAddress,
+                json!([payer.to_string(), config]),
+            )
+            .await
+        else {
+            return false;
+        };
+        // Newest first. The list is whole if it ends, or reaches back to
+        // `sent_after`: the transaction can only be in a later slot.
+        let whole = history.len() < SIGNATURES_PER_CALL
+            || history
+                .last()
+                .is_some_and(|oldest| oldest.slot <= sent_after);
+        let signature = signature.to_string();
+        whole && history.iter().all(|entry| entry.signature != signature)
     }
 
     /// Compute units the instructions use, with the maximum budget. A failure
@@ -264,32 +320,43 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        serde_json::{json, Value},
-        solana_rpc_client::mock_sender::MocksMap,
-        solana_rpc_client_api::request::RpcRequest,
-    };
+    use {super::*, serde_json::Value, solana_rpc_client::mock_sender::MocksMap};
 
     /// The last block height at which the mock RPC's blockhashes are valid.
     const LAST_VALID: u64 = 100;
     /// The finalized slot at which the mock RPC is past it.
     const FINALIZED: u64 = 500;
-    /// What the payer holds before it sends.
+    /// The finalized slot before the payer sends, and what it holds then.
+    const SENT_AFTER: u64 = 1;
     const BALANCE: u64 = 1_000_000;
 
     /// A poll that finds no status, and what the finalized chain says then:
-    /// its block height, and the payer's balance at `slot`.
+    /// its block height, the payer's balance at `slot`, and the payer's
+    /// signatures.
     #[derive(Clone, Copy)]
     struct Unseen {
         block_height: u64,
         slot: u64,
         balance: u64,
+        history: History,
+    }
+
+    /// The payer's finalized signatures, as far as one call lists them.
+    #[derive(Clone, Copy)]
+    enum History {
+        /// None since `SENT_AFTER`.
+        Empty,
+        /// The transaction.
+        Lists(Signature),
+        /// A full page of others, all since `SENT_AFTER`: there may be more.
+        Cut,
+        /// A full page of others that reaches back to `SENT_AFTER`.
+        Long,
     }
 
     fn blockhash(seed: u8) -> Value {
         json!({
-            "context": { "slot": 1 },
+            "context": { "slot": SENT_AFTER },
             "value": {
                 "blockhash": Pubkey::new_from_array([seed; 32]).to_string(),
                 "lastValidBlockHeight": LAST_VALID,
@@ -305,6 +372,28 @@ mod tests {
         json!({ "context": { "slot": FINALIZED }, "value": [status] })
     }
 
+    fn history(history: History) -> Value {
+        let entry = |signature: Signature, slot: u64| {
+            json!({
+                "signature": signature.to_string(),
+                "slot": slot,
+                "err": null,
+                "memo": null,
+                "blockTime": null,
+                "confirmationStatus": "finalized",
+            })
+        };
+        let other = Signature::default();
+        let mut page = vec![entry(other, SENT_AFTER + 1); SIGNATURES_PER_CALL];
+        match history {
+            History::Empty => page.clear(),
+            History::Lists(signature) => page = vec![entry(signature, SENT_AFTER + 1)],
+            History::Cut => {}
+            History::Long => page[SIGNATURES_PER_CALL - 1] = entry(other, SENT_AFTER),
+        }
+        json!(page)
+    }
+
     /// Sends a transfer through a mock RPC whose polls find no status, as
     /// `unseen` lists, and then the transaction finalized. The first
     /// transaction gets blockhash 2, a re-signed one blockhash 3.
@@ -312,13 +401,17 @@ mod tests {
         let mut mocks = MocksMap::default();
         mocks.insert(
             RpcRequest::SimulateTransaction,
-            json!({ "context": { "slot": 1 }, "value": { "unitsConsumed": 150 } }),
+            json!({ "context": { "slot": SENT_AFTER }, "value": { "unitsConsumed": 150 } }),
         );
         // The simulation takes blockhash 1.
         for seed in 1..=3 {
             mocks.insert(RpcRequest::GetLatestBlockhash, blockhash(seed));
         }
-        mocks.insert(RpcRequest::GetBalance, balance(1, BALANCE));
+        // Before each of the two sends.
+        for _ in 0..2 {
+            mocks.insert(RpcRequest::GetSlot, json!(SENT_AFTER));
+        }
+        mocks.insert(RpcRequest::GetBalance, balance(SENT_AFTER, BALANCE));
         for poll in unseen {
             mocks.insert(RpcRequest::GetSignatureStatuses, statuses(Value::Null));
             mocks.insert(
@@ -332,6 +425,7 @@ mod tests {
                 }),
             );
             mocks.insert(RpcRequest::GetBalance, balance(poll.slot, poll.balance));
+            mocks.insert(RpcRequest::GetSignaturesForAddress, history(poll.history));
         }
         mocks.insert(
             RpcRequest::GetSignatureStatuses,
@@ -344,7 +438,7 @@ mod tests {
             })),
         );
         // A re-signed transaction starts from the same balance.
-        mocks.insert(RpcRequest::GetBalance, balance(1, BALANCE));
+        mocks.insert(RpcRequest::GetBalance, balance(SENT_AFTER, BALANCE));
         let chain = Chain {
             rpc: RpcClient::new_mock_with_mocks_map("succeeds", mocks),
             payer: Some(payer.insecure_clone()),
@@ -358,16 +452,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_resigns_only_when_expired_and_the_payer_paid_no_fee() -> Result<()> {
+    async fn send_resigns_only_once_the_finalized_chain_rules_the_transaction_out() -> Result<()> {
         let payer = Keypair::new();
-        // Expired, and the payer's balance whole at the expiry: all it takes.
+        let first = send(&payer, vec![]).await?;
+        // Expired, the transaction not among the payer's signatures, and the
+        // payer's balance whole at the expiry: all it takes.
         let gone = Unseen {
             block_height: LAST_VALID + 1,
             slot: FINALIZED,
             balance: BALANCE,
+            history: History::Empty,
         };
-        let (first, unexpired, paid, behind, nowhere) = tokio::try_join!(
-            send(&payer, vec![]),
+        let with = |history| Unseen { history, ..gone };
+        let (unexpired, listed, cut, paid, behind, nowhere, long) = tokio::try_join!(
             // The blockhash is still valid: the transaction can land.
             send(
                 &payer,
@@ -376,6 +473,12 @@ mod tests {
                     ..gone
                 }]
             ),
+            // The transaction is on the chain, though the balance is whole, as
+            // after a deposit or the rollback of an earlier fee: it landed.
+            send(&payer, vec![with(History::Lists(first))]),
+            // The signatures don't reach back to the send: it may be among
+            // the older ones.
+            send(&payer, vec![with(History::Cut)]),
             // The payer paid a fee: it landed.
             send(
                 &payer,
@@ -393,12 +496,16 @@ mod tests {
                 }]
             ),
             send(&payer, vec![gone]),
+            send(&payer, vec![with(History::Long)]),
         )?;
         // The same signature means the same blockhash: no second transaction.
         assert_eq!(unexpired, first);
+        assert_eq!(listed, first);
+        assert_eq!(cut, first);
         assert_eq!(paid, first);
         assert_eq!(behind, first);
         assert_ne!(nowhere, first);
+        assert_ne!(long, first);
         Ok(())
     }
 }

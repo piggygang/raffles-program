@@ -127,6 +127,8 @@ cargo run -- --cluster <devnet|localnet> <command>
 
    `apply` prints each transaction. If anything differs from the spec it ends with an error, after writing the outputs. Items it can't bring back are reported as `lost`: an escrowed prize, or a pig sold outside the fixture keys. A winning fixture wallet's prize comes back to its holder on the next run.
 
+   A transaction that expires unconfirmed is signed again only once the finalized chain rules it out: the payer's signatures don't list it, and the payer's balance is untouched. That takes an RPC with transaction history. Otherwise `apply` stops, and a rerun continues from what landed.
+
 ## Localnet
 
 ```sh
