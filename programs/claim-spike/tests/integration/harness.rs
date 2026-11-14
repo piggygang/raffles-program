@@ -129,6 +129,15 @@ impl Test {
     }
 
     pub fn create_raffle(&mut self, creator: Pubkey, entry_cap: u8) -> Pubkey {
+        self.create_raffle_with(creator, entry_cap, mainnet_rules())
+    }
+
+    pub fn create_raffle_with(
+        &mut self,
+        creator: Pubkey,
+        entry_cap: u8,
+        membership_rules: [MembershipRule; 3],
+    ) -> Pubkey {
         let address = self.key();
         let raffle = Raffle {
             creator,
@@ -145,7 +154,7 @@ impl Test {
             rules_uri: format!("https://arweave.net/{}", "r".repeat(43)),
             rules_hash: [7; 32],
             draw_fee_lamports: 15_515_720,
-            membership_rules: mainnet_rules(),
+            membership_rules,
             entry_cap,
             full_gang_bonus: 3,
             min_duration: 3_600,
@@ -181,12 +190,18 @@ impl Test {
     /// metadata for a fresh mint, plus that mint and the wallet's token
     /// account for it.
     pub fn tm_pig(&mut self, rule_index: u8) -> Pig {
-        let mint = self.key();
-        let mut metadata = if rule_index == GIRL_GANG {
+        let metadata = if rule_index == GIRL_GANG {
             self.girl_gang.clone()
         } else {
             self.sol_gang.clone()
         };
+        self.tm_pig_from(metadata, rule_index)
+    }
+
+    /// A pig the wallet holds whose metadata is a copy of `metadata`, claimed
+    /// under rule `rule_index`.
+    pub fn tm_pig_from(&mut self, mut metadata: Account, rule_index: u8) -> Pig {
+        let mint = self.key();
         metadata.data[MINT].copy_from_slice(mint.as_ref());
         self.svm
             .set_account(client::metadata(&mint), metadata)
@@ -213,14 +228,16 @@ impl Test {
     /// A Piggy Gang pig the wallet owns: a copy of the fixture's asset at a
     /// fresh address.
     pub fn core_pig(&mut self) -> Pig {
+        self.core_pig_from(self.piggy_gang.clone(), PIGGY_GANG)
+    }
+
+    /// An asset the wallet owns, a copy of `asset`, claimed under rule
+    /// `rule_index`.
+    pub fn core_pig_from(&mut self, mut account: Account, rule_index: u8) -> Pig {
         let asset = self.key();
-        let mut account = self.piggy_gang.clone();
         account.data[ASSET_OWNER].copy_from_slice(self.wallet.pubkey().as_ref());
         self.svm.set_account(asset, account).unwrap();
-        Pig::Core {
-            rule_index: PIGGY_GANG,
-            asset,
-        }
+        Pig::Core { rule_index, asset }
     }
 
     pub fn set_token_account(&mut self, address: Pubkey, mint: Pubkey, owner: Pubkey, amount: u64) {
@@ -425,7 +442,7 @@ fn key_bytes(seed: u64, index: u64) -> [u8; 32] {
 }
 
 /// Loads a `solana account --output json` fixture.
-fn load_fixture(name: &str) -> Account {
+pub fn load_fixture(name: &str) -> Account {
     let path = format!("{FIXTURES}/{name}.json");
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

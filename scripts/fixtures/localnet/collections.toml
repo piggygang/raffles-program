@@ -1,0 +1,40 @@
+# localnet stand-ins for the Piggy collections, written by scripts/fixtures (PIG-115).
+# The indexer's seed format: copy into its localnet registry with the seeds/ beside it.
+version = 1
+
+[[collections]]
+slug = "test-sol-gang"
+name = "Test SOL Gang"
+standard = "token_metadata"
+enabled = true
+verified_creator = "3xTYTSyfTJr7SjXRSNEEj3V2LhVYsAKQwFwWFnJY4wi6"
+update_authority = "FuZuetLuGgS95HQdUsuzLj9msYquTj8zAhCzckBvPgp4"
+symbol = "PSG"
+mints = { file = "seeds/test-sol-gang.mints.json", count = 60 }
+
+[[collections]]
+slug = "test-girl-gang"
+name = "Test Girl Gang"
+standard = "token_metadata"
+enabled = true
+verified_creator = "3xTYTSyfTJr7SjXRSNEEj3V2LhVYsAKQwFwWFnJY4wi6"
+update_authority = "FuZuetLuGgS95HQdUsuzLj9msYquTj8zAhCzckBvPgp4"
+symbol = "PGG"
+mints = { file = "seeds/test-girl-gang.mints.json", count = 40 }
+
+[[collections]]
+slug = "test-piggy-gang"
+name = "Test Piggy Gang"
+standard = "core"
+enabled = true
+address = "CMcNHDaBi83nYskstCdHwFAkkqf7Y1h4vCg5HqUjp6Ft"
+
+[[collections]]
+slug = "test-pig-mud"
+name = "Test Pig Mud"
+standard = "token_metadata"
+enabled = true
+verified_creator = "Cqx9JA8niAAwsr2wbhws1rmnrKXumX5pQ1T4KjgUtpBp"
+update_authority = "FuZuetLuGgS95HQdUsuzLj9msYquTj8zAhCzckBvPgp4"
+symbol = "PMUD"
+mints = { file = "seeds/test-pig-mud.mints.json", count = 10 }
