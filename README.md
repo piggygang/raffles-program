@@ -2,7 +2,9 @@
 
 The Anchor program behind PiggyGang Raffles: escrowed prizes, free per-NFT entries for Piggy holders, a Switchboard On-Demand draw, and settlement with rent refunds. It is the only source of truth for raffle state; the indexer, the crank and the frontend all read from it. The product spec and the system architecture live in `docs/` of [piggygang/raffles](https://github.com/piggygang/raffles).
 
-So far the program has a single scaffold instruction, `hello`. The repo is pure Rust: the program, its tests and their harness.
+So far the program has its account model and a single scaffold instruction, `hello`. The repo is pure Rust: the program, its tests and their harness.
+
+[docs/account-model.md](docs/account-model.md) has every account's layout, size and rent, the addresses they live at, and the raffle state machine (PIG-86).
 
 `programs/vrf-spike` and `spikes/vrf-driver` are the PIG-114 spike: ORAO VRF on devnet. Its end-to-end devnet measurement is still to run. They go once PIG-83 lands the real draw. The findings and how to rerun them are in [docs/spikes/pig-114-vrf-on-devnet.md](docs/spikes/pig-114-vrf-on-devnet.md).
 
@@ -64,6 +66,8 @@ The tests run in-process on [LiteSVM](https://github.com/LiteSVM/litesvm): no va
 The VM also runs Token Metadata and mpl-core: their mainnet bytecode, dumped into `programs/raffles/tests/fixtures` along with the deploy each came from. Token Metadata is immutable on mainnet; when mpl-core ships an upgrade, refresh the dump with `scripts/dump-fixtures.sh` and commit it. Smoke tests create an NFT and a Core asset through them, which is also how raffle tests will mint their prizes and Piggies.
 
 The tests are one binary, `programs/raffles/tests/integration`, with a module per area and a shared `harness`. Add new areas as modules there, not as new files in `tests/`, so LiteSVM links once.
+
+The account model has unit tests next to its types, in `programs/raffles/src/state`. They check every layout, size, rent figure, enum value and state transition against [docs/account-model.md](docs/account-model.md), so a change to an account fails until the document says the same.
 
 The VRF spike's tests run the ORAO VRF program dumped from devnet, with test keys in place of ORAO's fulfillment authorities, so request, fulfill and consume all run for real. `scripts/dump-vrf-spike-fixtures.sh` refreshes the dump.
 
@@ -161,6 +165,7 @@ programs/vrf-spike/                   PIG-114 spike program, its tests and ORAO 
 programs/claim-spike/                 PIG-133 spike program, its tests and mainnet pig fixtures
 spikes/vrf-driver/                    PIG-114 devnet driver (its own workspace)
 scripts/fixtures/                     PIG-115 devnet fixtures (its own workspace) and their outputs
+docs/account-model.md                 accounts, sizes, rent and the state machine
 docs/spikes/                          spike write-ups
 scripts/                              deploy-devnet.sh and the fixture dumps (dump-*.sh)
 ```

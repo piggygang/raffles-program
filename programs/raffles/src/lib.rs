@@ -1,7 +1,10 @@
 //! PiggyGang Raffles: free holder-rewards raffles with escrowed prizes and a
 //! Switchboard On-Demand draw. All authoritative raffle state lives here.
 
+pub mod constants;
+pub mod error;
 pub mod instructions;
+pub mod state;
 
 use anchor_lang::prelude::*;
 
