@@ -49,9 +49,17 @@ jobs:
             grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" "$manifest"
           done
 
-      # The two checks below compare with the releases, which are tags.
+      # The two checks below compare with the releases, which are tags. The
+      # fetch runs only once a release exists: a shallow fetch that matches no
+      # ref exits 1 without a message. The `+` lets the remote's tag replace
+      # the one a tag's own run checked out, which may be a plain ref where
+      # the remote has a tag object.
       - name: Fetch the release tags
-        run: git fetch --quiet --depth 1 origin 'refs/tags/v*:refs/tags/v*'
+        run: |
+          tags=$(git ls-remote --tags origin 'refs/tags/v*')
+          if [[ -n $tags ]]; then
+            git fetch --quiet --depth 1 origin '+refs/tags/v*:refs/tags/v*'
+          fi
 
       # The program, the IDL of record and both clients are one release, and
       # an interface that changed since that release has a new version.
