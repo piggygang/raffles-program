@@ -462,9 +462,10 @@ Choices the designs left to this issue, and places where a later finding replace
   - It empties the token escrow before closing it. Tokens can arrive after the payout too, and a token account with a balance doesn't close: one base unit would hold the creator's rent for good.
   - A request that the provider fulfils after the close refunds its rent to the vault's address (PIG-114 §2.1), which nothing empties by then. `creator` and `nonce` still derive that address, so an instruction can return those lamports to the creator later. PIG-153 decides whether to add one.
 - **The IDL (PIG-117).**
-  - Anchor lists an account in the IDL only once an instruction's accounts struct names it. Today the IDL has the constants and the errors, and no account.
+  - Anchor lists an account in the IDL only once an instruction's accounts struct names it. Today the IDL has the constants, the errors and the events ([events](events.md)), and no account.
   - `EntryReceipt` will never be listed: claims and closes pass receipts as remaining accounts. The claim spike's IDL shows it, with `Config`, `EntryPosition` and `Raffle` only. A decoder takes the receipt from this document or from the crate.
   - The IDL shows the enums as `u8`. Their values are in section 5.
+  - The released clients are generated from the IDL, so each gains an account with the instruction that names it. The Rust client already derives every address of section 2 ([releases](releases.md)).
 - **The indexer (PIG-118, PIG-119, PIG-78).**
   - The `memcmp` offsets and discriminators are in section 4.
   - A raffle's address can name a second raffle after the first is closed (section 2). History keyed by address alone would merge the two; the transaction that created each tells them apart.

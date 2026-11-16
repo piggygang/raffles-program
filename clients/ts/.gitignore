@@ -1,0 +1,8 @@
+# Installed, generated or built: `npm ci && npm run build` makes them again
+# from the IDL of record.
+/node_modules
+/src/generated
+/src/release.ts
+/idl
+/dist
+*.tgz

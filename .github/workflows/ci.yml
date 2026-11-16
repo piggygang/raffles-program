@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs all of this on a tag before it publishes.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,6 +19,8 @@ env:
   ANCHOR_VERSION: 1.2.2
   SOLANA_VERSION: 4.1.2
   SOLANA_VERIFY_VERSION: 0.5.2
+  # Builds the TypeScript client. The app pins the same release.
+  NODE_VERSION: 24.19.0
   # Anchor never waits for interactive input.
   NO_DNA: "1"
 
@@ -34,12 +38,29 @@ jobs:
           grep -qxF "anchor_version = \"$ANCHOR_VERSION\"" Anchor.toml
           grep -qxF "solana_version = \"$SOLANA_VERSION\"" Anchor.toml
           grep -qxF "solana = \"$SOLANA_VERSION\"" Cargo.toml
-          for manifest in programs/*/Cargo.toml spikes/vrf-driver/Cargo.toml; do
-            grep -qF "anchor-lang = \"=$ANCHOR_VERSION\"" "$manifest"
+          # The pin alone, or as the `version` of a table with features.
+          for manifest in programs/*/Cargo.toml spikes/vrf-driver/Cargo.toml clients/rust/Cargo.toml; do
+            grep -qF \
+              -e "anchor-lang = \"=$ANCHOR_VERSION\"" \
+              -e "anchor-lang = { version = \"=$ANCHOR_VERSION\"," \
+              "$manifest"
           done
           for manifest in programs/raffles/Cargo.toml programs/claim-spike/Cargo.toml; do
             grep -qF "anchor-spl = { version = \"=$ANCHOR_VERSION\"" "$manifest"
           done
+
+      # The two checks below compare with the releases, which are tags.
+      - name: Fetch the release tags
+        run: git fetch --quiet --depth 1 origin 'refs/tags/v*:refs/tags/v*'
+
+      # The program, the IDL of record and both clients are one release, and
+      # an interface that changed since that release has a new version.
+      - name: One version
+        run: scripts/version.sh check
+
+      # Each release that deployments.json names is that tag's commit and IDL.
+      - name: deployments.json agrees with the tags
+        run: scripts/deployments.sh check
 
       # Switchboard asks for `solana-program >=3`, which a plain `cargo update`
       # resolves to the newest major: a second Solana SDK next to the 3.x that
@@ -77,16 +98,20 @@ jobs:
       # throwaway target/deploy/raffles-keypair.json that never matches
       # declare_id!. Skip the check that compares them.
       - run: anchor build --ignore-keys
-      # LiteSVM, in-process: the programs from the build above plus the
-      # fixtures in programs/*/tests/fixtures.
-      - run: cargo test --workspace
 
-      # PIG-117 publishes the IDL from tags; every run keeps a copy.
+      # The IDL this commit builds. Uploaded before the tests, which fail when
+      # idls/raffles.json isn't it: the run then hands over the one to commit.
+      # A release publishes this copy.
       - uses: actions/upload-artifact@v7
         with:
           name: idl
           path: target/idl/raffles.json
           if-no-files-found: error
+
+      # LiteSVM, in-process: the programs from the build above plus the
+      # fixtures in programs/*/tests/fixtures. The `interface` tests hold the
+      # IDL of record, the event document and the Rust client to the program.
+      - run: cargo test --workspace
 
   # The PIG-114 spike's devnet driver. It is its own workspace (see its
   # Cargo.toml), so the steps above don't reach it.
@@ -129,6 +154,118 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+
+  # The Rust client, clients/rust: its own workspace too, because the
+  # repositories that take it build on an older Rust than the program.
+  client-rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: clients/rust
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust from rust-toolchain.toml, and the consumers' 1.90
+        run: |
+          rustup toolchain install
+          rustup toolchain install 1.90 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      # Without `anchor` the crate is the IDL alone.
+      - run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo test --locked --no-default-features
+      # The indexer and raffles-services are on Rust 1.90.
+      - run: cargo +1.90 build --locked
+
+  # The TypeScript client, clients/ts: generated from the IDL of record, never
+  # committed. Its tests need no change when the interface grows.
+  client-ts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: clients/ts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm test
+      # The tarball a release publishes, of the build the tests just ran on.
+      - name: Pack
+        run: |
+          npm pack --ignore-scripts
+          mv piggygang-raffles-client-*.tgz raffles-client.tgz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ts-client
+          path: clients/ts/raffles-client.tgz
+          if-no-files-found: error
+
+  # The drift check the consumers run (.github/actions/idl-drift), proven on
+  # a deliberate mismatch: a copy of the IDL passes, a changed copy fails.
+  idl-drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Vendor the IDL, and a copy from another release
+        run: |
+          mkdir vendored
+          cp idls/raffles.json vendored/raffles.json
+          sed 's/"version": "[^"]*"/"version": "0.0.0"/' idls/raffles.json > vendored/drifted.json
+          if cmp -s idls/raffles.json vendored/drifted.json; then
+            echo "::error::the drifted copy is the same as the IDL: the mismatch isn't one"
+            exit 1
+          fi
+
+      - name: The copy passes
+        uses: ./.github/actions/idl-drift
+        with:
+          idl: vendored/raffles.json
+
+      # The action runs this script and nothing else, so the script's status
+      # is the action's. 1 is drift; 2 would mean the check couldn't run.
+      - name: The drifted copy fails
+        run: |
+          status=0
+          scripts/idl-drift.sh vendored/drifted.json || status=$?
+          test "$status" = 1
+
+      # The other direction: the copy is right, but the cluster has moved on.
+      - name: A cluster on another interface is reported
+        run: |
+          deployed() {
+            jq --arg hash "$1" '
+              .clusters.devnet.deployments = [
+                { version: null, commit: null, slot: 1, executable_hash: $hash, idl_sha256: $hash }
+              ]
+            ' deployments.json
+          }
+          deployed "$(sha256sum idls/raffles.json | cut -d' ' -f1)" > same.json
+          deployed "$(printf '0%.0s' {1..64})" > other.json
+
+          scripts/idl-drift.sh vendored/raffles.json --cluster devnet --deployments same.json --strict
+          # A warning by default, a failure with --strict.
+          scripts/idl-drift.sh vendored/raffles.json --cluster devnet --deployments other.json
+          status=0
+          scripts/idl-drift.sh vendored/raffles.json --cluster devnet --deployments other.json --strict || status=$?
+          test "$status" = 1
 
   # The Docker build scripts/deploy-devnet.sh deploys, so its hash for a commit
   # is the hash of that commit on devnet.

@@ -23,7 +23,8 @@ custom-panic = []
 
 [dependencies]
 # Exact pins: the crates move in lockstep with the CLI version in Anchor.toml.
-anchor-lang = "=1.2.2"
+# `event-cpi`: events are inner instructions, not log lines (docs/events.md).
+anchor-lang = { version = "=1.2.2", features = ["event-cpi"] }
 # `metadata` brings mpl-token-metadata, pinned by anchor-spl to the build on
 # Solana 3 crates (5.1.1, the latest stable, is still Solana 2). Import it as
 # `anchor_spl::metadata::mpl_token_metadata`; don't add it directly.
@@ -43,6 +44,10 @@ getrandom = { version = "0.2", features = ["custom"] }
 # (0.15 breaks against it; 0.17+ needs the 4.3 runtime, which needs Rust 1.97).
 [dev-dependencies]
 litesvm = "0.16.0"
+# The released client, which the tests hold to the program
+# (tests/integration/interface.rs).
+raffles-client = { path = "../../clients/rust" }
+serde_json = "1"
 solana-keypair = "3"
 solana-message = "4"
 solana-signer = "3"

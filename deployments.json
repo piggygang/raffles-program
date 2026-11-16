@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "clusters": {
+    "devnet": {
+      "program_id": "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM",
+      "deployments": []
+    },
+    "mainnet-beta": {
+      "program_id": null,
+      "deployments": []
+    }
+  }
+}

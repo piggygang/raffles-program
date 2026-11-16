@@ -1,0 +1,59 @@
+# The drift check, for the repositories that build against the raffles
+# program: the indexer, raffles-services and the app (docs/releases.md).
+#
+# Pin it to the release whose IDL the repository vendored:
+#
+#   - uses: piggygang/raffles-program/.github/actions/idl-drift@v0.1.0
+#     with:
+#       idl: idls/raffles.json
+#
+# The action is this repository at that tag, so it compares the copy with the
+# tag's own idls/raffles.json: nothing is fetched. Moving to another release
+# is the new tag here and the new file there, and the check fails until both
+# are done.
+name: Raffles IDL drift check
+description: Fails when a vendored raffles IDL isn't the IDL of the release this action is pinned to.
+
+inputs:
+  idl:
+    description: Path of the vendored IDL, from the workspace.
+    required: true
+  cluster:
+    description: >-
+      `devnet` or `mainnet-beta`: also warn when deployments.json on the
+      program's default branch says that cluster runs another interface than
+      the pinned release.
+    required: false
+    default: ""
+  strict:
+    description: With `cluster`, fail instead of warning.
+    required: false
+    default: "false"
+
+outputs:
+  version:
+    description: The release the action is pinned to.
+    value: ${{ steps.check.outputs.version }}
+  sha256:
+    description: sha256 of that release's IDL.
+    value: ${{ steps.check.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      # Inputs reach the script as data, never as shell.
+      env:
+        IDL: ${{ inputs.idl }}
+        CLUSTER: ${{ inputs.cluster }}
+        STRICT: ${{ inputs.strict }}
+      run: |
+        arguments=("$IDL")
+        if [[ -n $CLUSTER ]]; then
+          arguments+=(--cluster "$CLUSTER")
+        fi
+        if [[ $STRICT == true ]]; then
+          arguments+=(--strict)
+        fi
+        "$GITHUB_ACTION_PATH/../../../scripts/idl-drift.sh" "${arguments[@]}"

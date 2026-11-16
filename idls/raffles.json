@@ -1,0 +1,1179 @@
+{
+  "address": "RAFA9shRkA8Q9h2bSzCHGtaXNTE39yHV8DtxdguSsYM",
+  "metadata": {
+    "name": "raffles",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "PiggyGang Raffles: escrowed prizes, free per-NFT entries and a Switchboard VRF draw",
+    "repository": "https://github.com/piggygang/raffles-program"
+  },
+  "instructions": [
+    {
+      "name": "hello",
+      "docs": [
+        "Scaffold smoke test: logs a greeting to the signer. Goes away once the",
+        "first real instruction lands."
+      ],
+      "discriminator": [
+        149,
+        118,
+        59,
+        220,
+        196,
+        127,
+        161,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        }
+      ],
+      "args": []
+    }
+  ],
+  "events": [
+    {
+      "name": "AuthorityAccepted",
+      "discriminator": [
+        166,
+        192,
+        219,
+        188,
+        41,
+        209,
+        195,
+        26
+      ]
+    },
+    {
+      "name": "AuthorityProposed",
+      "discriminator": [
+        244,
+        117,
+        94,
+        112,
+        53,
+        151,
+        35,
+        89
+      ]
+    },
+    {
+      "name": "ConfigInitialized",
+      "discriminator": [
+        181,
+        49,
+        200,
+        156,
+        19,
+        167,
+        178,
+        91
+      ]
+    },
+    {
+      "name": "ConfigUpdated",
+      "discriminator": [
+        40,
+        241,
+        230,
+        122,
+        11,
+        19,
+        198,
+        194
+      ]
+    },
+    {
+      "name": "CreatorAdded",
+      "discriminator": [
+        95,
+        214,
+        107,
+        88,
+        9,
+        31,
+        98,
+        66
+      ]
+    },
+    {
+      "name": "CreatorRemoved",
+      "discriminator": [
+        91,
+        61,
+        175,
+        33,
+        126,
+        225,
+        204,
+        76
+      ]
+    },
+    {
+      "name": "DrawRequested",
+      "discriminator": [
+        59,
+        172,
+        219,
+        42,
+        28,
+        94,
+        93,
+        75
+      ]
+    },
+    {
+      "name": "EntriesClaimed",
+      "discriminator": [
+        216,
+        83,
+        137,
+        79,
+        220,
+        112,
+        119,
+        142
+      ]
+    },
+    {
+      "name": "EntryAccountsClosed",
+      "discriminator": [
+        153,
+        189,
+        68,
+        95,
+        71,
+        171,
+        174,
+        46
+      ]
+    },
+    {
+      "name": "PrizeAllowlisted",
+      "discriminator": [
+        219,
+        44,
+        227,
+        47,
+        43,
+        236,
+        142,
+        69
+      ]
+    },
+    {
+      "name": "PrizeClaimed",
+      "discriminator": [
+        213,
+        150,
+        192,
+        76,
+        199,
+        33,
+        212,
+        38
+      ]
+    },
+    {
+      "name": "PrizeDelisted",
+      "discriminator": [
+        228,
+        254,
+        91,
+        188,
+        90,
+        167,
+        67,
+        200
+      ]
+    },
+    {
+      "name": "PrizeReclaimed",
+      "discriminator": [
+        187,
+        81,
+        244,
+        34,
+        63,
+        0,
+        122,
+        216
+      ]
+    },
+    {
+      "name": "RaffleCancelled",
+      "discriminator": [
+        123,
+        83,
+        254,
+        127,
+        53,
+        244,
+        159,
+        102
+      ]
+    },
+    {
+      "name": "RaffleClosed",
+      "discriminator": [
+        148,
+        47,
+        204,
+        246,
+        27,
+        111,
+        118,
+        49
+      ]
+    },
+    {
+      "name": "RaffleCreated",
+      "discriminator": [
+        178,
+        172,
+        201,
+        96,
+        233,
+        171,
+        6,
+        99
+      ]
+    },
+    {
+      "name": "WinnerDrawn",
+      "discriminator": [
+        213,
+        103,
+        5,
+        118,
+        145,
+        75,
+        146,
+        120
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidRuleKind",
+      "msg": "not a membership rule kind the program knows"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidPrizeKind",
+      "msg": "not a prize kind the program knows"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidEscrowKind",
+      "msg": "not an escrow kind the program knows"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidRaffleState",
+      "msg": "not a raffle state the program knows"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidCancelReason",
+      "msg": "not a cancel reason the program knows"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidTransition",
+      "msg": "the raffle can't move to that state from the one it is in"
+    }
+  ],
+  "types": [
+    {
+      "name": "AuthorityAccepted",
+      "docs": [
+        "`accept_authority` completed the transfer: `new_authority` signed, and is",
+        "`Config::authority` from here on."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthorityProposed",
+      "docs": [
+        "`set_authority` named the authority's successor, or withdrew one: then",
+        "`pending_authority` is zero. `authority` stays in charge either way."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigInitialized",
+      "docs": [
+        "`init_config` created `Config`. The fields after `authority` are the",
+        "settings it starts with."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "membership_rules",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MembershipRule"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_cap",
+            "type": "u8"
+          },
+          {
+            "name": "full_gang_bonus",
+            "type": "u8"
+          },
+          {
+            "name": "min_duration",
+            "type": "u32"
+          },
+          {
+            "name": "max_duration",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdated",
+      "docs": [
+        "`update_config` changed a setting, the pause flag included. The event",
+        "carries every setting, changed or not: the difference from the event",
+        "before it is the change."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "membership_rules",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MembershipRule"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_cap",
+            "type": "u8"
+          },
+          {
+            "name": "full_gang_bonus",
+            "type": "u8"
+          },
+          {
+            "name": "min_duration",
+            "type": "u32"
+          },
+          {
+            "name": "max_duration",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorAdded",
+      "docs": [
+        "`creator_add` created the wallet's `CreatorEntry`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "label",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorRemoved",
+      "docs": [
+        "`creator_remove` closed the wallet's `CreatorEntry`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DrawRequested",
+      "docs": [
+        "`request_draw` requested randomness: the first request, which moves the",
+        "raffle to Drawing, or a later one after the retry timeout."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_entries",
+            "docs": [
+              "The entries the draw picks from. They are final from the first",
+              "request on."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "draw_requested_at",
+            "docs": [
+              "Cluster time of the first request, the same in every later one."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "vrf_requests",
+            "docs": [
+              "Requests so far, this one included: 1 for the first."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "vrf_requested_slot",
+            "type": "u64"
+          },
+          {
+            "name": "vrf_seed",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "vrf_request",
+            "docs": [
+              "The VRF provider's request account for `vrf_seed`: where the",
+              "randomness and its proof will be."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntriesClaimed",
+      "docs": [
+        "`claim_entries` entered `nfts` for `wallet`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "range",
+            "docs": [
+              "The entries this claim added, the bonus included, as the range it",
+              "appended to the wallet's position. A `count` of zero says it added",
+              "none and appended nothing: a pig at the cap that only adds a",
+              "collection."
+            ],
+            "type": {
+              "defined": {
+                "name": "EntryRange"
+              }
+            }
+          },
+          {
+            "name": "bonus_entries",
+            "docs": [
+              "How many of the range's entries are the Full Gang bonus: zero unless",
+              "this claim completed the set."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "entries_claimed",
+            "type": "u8"
+          },
+          {
+            "name": "collections_seen",
+            "type": "u8"
+          },
+          {
+            "name": "bonus_awarded",
+            "type": "bool"
+          },
+          {
+            "name": "total_entries",
+            "type": "u32"
+          },
+          {
+            "name": "nfts",
+            "docs": [
+              "The NFTs entered, in the order the claim gave them: a Token Metadata",
+              "mint or a Core asset each, and one new `EntryReceipt` each."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryAccountsClosed",
+      "docs": [
+        "`close_entry_accounts` closed entry accounts and returned their rent to",
+        "the wallets that paid it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "open_entry_accounts",
+            "type": "u32"
+          },
+          {
+            "name": "wallets",
+            "docs": [
+              "The wallets whose `EntryPosition` was closed."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "nfts",
+            "docs": [
+              "The NFTs whose `EntryReceipt` was closed."
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryRange",
+      "docs": [
+        "A run of consecutive entry indexes that one claim added."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start",
+            "docs": [
+              "The first index: `Raffle::total_entries` when the claim ran."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "count",
+            "docs": [
+              "How many entries: at most the cap plus the Full Gang bonus."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MembershipRule",
+      "docs": [
+        "The test that makes an NFT a Piggy of one collection (spec D19).",
+        "",
+        "A flat record of 75 bytes rather than a Rust enum, whose Borsh size would",
+        "vary: `Config` and every `Raffle` hold three, and stay fixed-size."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "docs": [
+              "A [`RuleKind`]."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "address",
+            "docs": [
+              "`TmCreator`: the verified creator. `CoreCollection`: the collection."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "update_authority",
+            "docs": [
+              "`TmCreator`: the metadata update authority. `CoreCollection`: zero."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "symbol",
+            "docs": [
+              "`TmCreator`: the symbol, padded with zero bytes. `CoreCollection`:",
+              "zero."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                10
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeAllowlisted",
+      "docs": [
+        "`allowlist_add` created the `PrizeEntry` for `kind` and `address`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "docs": [
+              "A `PrizeKind`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "address",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeClaimed",
+      "docs": [
+        "`claim_prize` paid the prize to the winner: the raffle is Settled."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "prize_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Base units paid out, which is all the escrow held: at least",
+              "`Raffle::prize_amount`. 1 for a Core asset."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeDelisted",
+      "docs": [
+        "`allowlist_remove` closed the `PrizeEntry` for `kind` and `address`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "docs": [
+              "A `PrizeKind`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "address",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeReclaimed",
+      "docs": [
+        "`reclaim_prize` returned the prize to the creator."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "docs": [
+              "Signed the instruction. Anyone may: the prize goes to `creator`",
+              "whoever calls."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "docs": [
+              "A `RaffleState`: Settled, or Cancelled",
+              "for the prize of a cancelled raffle, whose state the reclaim leaves",
+              "alone."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "prize_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Base units returned, which is all the escrow held. 1 for a Core",
+              "asset."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RaffleCancelled",
+      "docs": [
+        "`cancel_raffle` cancelled the raffle: its entries are void."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancel_reason",
+            "docs": [
+              "A `CancelReason`, never `NotCancelled`."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RaffleClosed",
+      "docs": [
+        "`close_raffle` closed the Raffle, its draw-fee vault and its token escrow.",
+        "Its address is free again: a later `RaffleCreated` there is another",
+        "raffle."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RaffleCreated",
+      "docs": [
+        "`create_raffle` created the raffle and escrowed its prize. The event is",
+        "everything about the raffle that never changes, so its history can be",
+        "read after `close_raffle` has removed the account."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "created_by_authority",
+            "docs": [
+              "The creator signed as `Config::authority`, which needs no",
+              "`CreatorEntry`. Otherwise its entry admitted it."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "escrow_kind",
+            "docs": [
+              "An `EscrowKind`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "prize_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "prize_amount",
+            "type": "u64"
+          },
+          {
+            "name": "allowlist_kind",
+            "docs": [
+              "The `PrizeKind` of the `PrizeEntry` that",
+              "admitted the prize."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "allowlist_address",
+            "docs": [
+              "That entry's `address`: the collection, or the mint itself."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "end_ts",
+            "type": "i64"
+          },
+          {
+            "name": "draw_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "membership_rules",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MembershipRule"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_cap",
+            "type": "u8"
+          },
+          {
+            "name": "full_gang_bonus",
+            "type": "u8"
+          },
+          {
+            "name": "min_duration",
+            "type": "u32"
+          },
+          {
+            "name": "max_duration",
+            "type": "u32"
+          },
+          {
+            "name": "rules_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "rules_uri",
+            "type": "string"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "docs": [
+              "The organizer's free text. The Raffle doesn't keep it: this event and",
+              "the instruction's data are where it is on-chain."
+            ],
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinnerDrawn",
+      "docs": [
+        "The randomness arrived and the winner is recorded: the raffle is Drawn."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raffle",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner_index",
+            "type": "u32"
+          },
+          {
+            "name": "total_entries",
+            "docs": [
+              "What `winner_index` was drawn below."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "drawn_at",
+            "type": "i64"
+          },
+          {
+            "name": "vrf_request",
+            "docs": [
+              "The request account the randomness was read from."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vrf_randomness",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "BREAK_GLASS_DELAY_SECS",
+      "docs": [
+        "How long a raffle has to sit in Drawing before the admin may cancel it,",
+        "counted from `Raffle::draw_requested_at` (spec D15, E-D5)."
+      ],
+      "type": "i64",
+      "value": "604800"
+    },
+    {
+      "name": "CLAIM_WINDOW_SECS",
+      "docs": [
+        "How long the winner has to claim the prize, counted from",
+        "`Raffle::drawn_at` (spec D5)."
+      ],
+      "type": "i64",
+      "value": "2592000"
+    },
+    {
+      "name": "CLOSE_GRACE_SECS",
+      "docs": [
+        "How long after the claim window a Drawn raffle's entry accounts become",
+        "closeable, whatever happened to the prize (spec E-S8)."
+      ],
+      "type": "i64",
+      "value": "2592000"
+    },
+    {
+      "name": "CONFIG_SEED",
+      "docs": [
+        "`Config`, the singleton: `[CONFIG_SEED]`."
+      ],
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "CREATOR_SEED",
+      "docs": [
+        "A `CreatorEntry`: `[CREATOR_SEED, wallet]`."
+      ],
+      "type": "bytes",
+      "value": "[99, 114, 101, 97, 116, 111, 114]"
+    },
+    {
+      "name": "FULL_GANG",
+      "docs": [
+        "`EntryPosition::collections_seen` once an NFT of every membership rule is",
+        "entered: the Full Gang set."
+      ],
+      "type": "u8",
+      "value": "7"
+    },
+    {
+      "name": "MAX_ENTRY_CAP",
+      "docs": [
+        "The highest per-wallet entry cap `Config` may hold; spec D1 sets 10. An",
+        "`EntryPosition` is sized for it, so a higher cap needs a program upgrade."
+      ],
+      "type": "u8",
+      "value": "10"
+    },
+    {
+      "name": "MAX_RULES_URI_LEN",
+      "docs": [
+        "The longest `Raffle::rules_uri`, in bytes (rules design §3)."
+      ],
+      "type": "u8",
+      "value": "96"
+    },
+    {
+      "name": "MAX_TITLE_LEN",
+      "docs": [
+        "The longest `Raffle::title`, in bytes."
+      ],
+      "type": "u8",
+      "value": "64"
+    },
+    {
+      "name": "POSITION_SEED",
+      "docs": [
+        "An `EntryPosition`: `[POSITION_SEED, raffle, wallet]`."
+      ],
+      "type": "bytes",
+      "value": "[112, 111, 115, 105, 116, 105, 111, 110]"
+    },
+    {
+      "name": "PRIZE_SEED",
+      "docs": [
+        "A `PrizeEntry`: `[PRIZE_SEED, [kind], address]`."
+      ],
+      "type": "bytes",
+      "value": "[112, 114, 105, 122, 101]"
+    },
+    {
+      "name": "RAFFLE_SEED",
+      "docs": [
+        "A `Raffle`: `[RAFFLE_SEED, creator, nonce]`, the nonce as a little-endian",
+        "`u64`."
+      ],
+      "type": "bytes",
+      "value": "[114, 97, 102, 102, 108, 101]"
+    },
+    {
+      "name": "RECEIPT_SEED",
+      "docs": [
+        "An `EntryReceipt`: `[RECEIPT_SEED, raffle, nft]`, the NFT being a Token",
+        "Metadata mint or a Core asset."
+      ],
+      "type": "bytes",
+      "value": "[114, 101, 99, 101, 105, 112, 116]"
+    },
+    {
+      "name": "VAULT_SEED",
+      "docs": [
+        "A raffle's draw-fee vault, a system account without data:",
+        "`[VAULT_SEED, raffle]`."
+      ],
+      "type": "bytes",
+      "value": "[118, 97, 117, 108, 116]"
+    }
+  ]
+}

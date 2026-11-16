@@ -1,7 +1,10 @@
 use {
     anchor_lang::solana_program::instruction::Instruction,
     anchor_spl::metadata::mpl_token_metadata,
-    litesvm::{types::TransactionMetadata, LiteSVM},
+    litesvm::{
+        types::{FailedTransactionMetadata, TransactionMetadata},
+        LiteSVM,
+    },
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
     solana_signer::Signer,
@@ -47,6 +50,17 @@ impl Test {
         instructions: &[Instruction],
         signers: &[&Keypair],
     ) -> TransactionMetadata {
+        self.try_send(instructions, signers)
+            .unwrap_or_else(|failed| panic!("{}\n{}", failed.err, failed.meta.pretty_logs()))
+    }
+
+    /// `send`, for a transaction that may fail: the error comes back with the
+    /// logs. It is boxed, because LiteSVM's is a few hundred bytes.
+    pub fn try_send(
+        &mut self,
+        instructions: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Result<TransactionMetadata, Box<FailedTransactionMetadata>> {
         let message = Message::new_with_blockhash(
             instructions,
             Some(&self.payer.pubkey()),
@@ -57,8 +71,6 @@ impl Test {
             .collect();
         let transaction =
             VersionedTransaction::try_new(VersionedMessage::Legacy(message), &signers).unwrap();
-        self.svm
-            .send_transaction(transaction)
-            .unwrap_or_else(|failed| panic!("{}\n{}", failed.err, failed.meta.pretty_logs()))
+        self.svm.send_transaction(transaction).map_err(Box::new)
     }
 }

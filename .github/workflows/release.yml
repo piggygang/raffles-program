@@ -1,0 +1,105 @@
+name: Release
+
+# A tag vX.Y.Z publishes the program's interface at that commit
+# (docs/releases.md): the IDL, the verifiable build and the TypeScript client
+# as a GitHub release, and the client on npm once that is switched on. The
+# Rust client needs no publishing: the tag is how it is taken.
+#
+# Nothing here deploys. scripts/deploy-devnet.sh deploys a release, and
+# records it in deployments.json.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 24.19.0
+
+jobs:
+  # The whole gate, on the tagged commit. A tag can point at any commit, so
+  # nothing is published from one this hasn't passed.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # Creates the release.
+      contents: write
+      # npm's trusted publishing: no token is stored anywhere.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: The tag is the version
+        run: scripts/version.sh check --tag "$GITHUB_REF_NAME"
+
+      # What the gate built from this commit: `idl`, `raffles-verifiable` and
+      # `ts-client`, each in a directory of its name.
+      - uses: actions/download-artifact@v8
+        with:
+          path: built
+
+      - name: Assemble the release
+        run: |
+          mkdir release
+          # The IDL this commit builds is the IDL of record, byte for byte.
+          cmp built/idl/raffles.json idls/raffles.json
+          cp idls/raffles.json release/raffles.json
+          cp built/raffles-verifiable/target/deploy/raffles.so release/raffles.so
+          cp built/ts-client/raffles-client.tgz release/raffles-client.tgz
+          (cd release && sha256sum raffles.json raffles.so raffles-client.tgz > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Write the release notes
+        run: |
+          export VERSION=${GITHUB_REF_NAME#v} TAG=$GITHUB_REF_NAME COMMIT=$GITHUB_SHA
+          export REPOSITORY=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY
+          PROGRAM_ID=$(jq -er '.address' release/raffles.json)
+          IDL_SHA256=$(sha256sum release/raffles.json | cut -d' ' -f1)
+          EXECUTABLE_HASH=$(tail -n 1 built/raffles-verifiable/raffles.so.hash | tr -d '[:space:]')
+          [[ $EXECUTABLE_HASH =~ ^[0-9a-f]{64}$ ]]
+          export PROGRAM_ID IDL_SHA256 EXECUTABLE_HASH
+          # Only the template's own names: any other `$` in it stays.
+          envsubst '$VERSION $TAG $COMMIT $REPOSITORY $PROGRAM_ID $IDL_SHA256 $EXECUTABLE_HASH' \
+            < .github/release-notes.md > notes.md
+          cat notes.md
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # A rerun. A release never changes, so it has to be the same one.
+            gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS --dir published
+            cmp published/SHA256SUMS release/SHA256SUMS
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+              --notes-file notes.md --generate-notes release/*
+          fi
+
+      # Off until the repository variable NPM_PUBLISH is `true`: the package
+      # needs its npm organization and a trusted publisher first
+      # (docs/releases.md). Until then the release's tarball is the package.
+      - uses: actions/setup-node@v7
+        if: vars.NPM_PUBLISH == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Publish the TypeScript client to npm
+        if: vars.NPM_PUBLISH == 'true'
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          # A rerun: the version is already there, and npm never replaces one.
+          if npm view "@piggygang/raffles-client@$version" version >/dev/null 2>&1; then
+            echo "@piggygang/raffles-client@$version is already on npm."
+            exit 0
+          fi
+          npm publish release/raffles-client.tgz --access public

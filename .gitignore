@@ -3,6 +3,7 @@
 /target
 /spikes/*/target
 /scripts/*/target
+/clients/*/target
 /.anchor
 # Ledgers of `anchor localnet`, if anyone starts one.
 /test-ledger

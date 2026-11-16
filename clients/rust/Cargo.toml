@@ -1,0 +1,49 @@
+[package]
+name = "raffles-client"
+version = "0.1.0"
+description = "PiggyGang Raffles: the program's IDL at one release, and the Rust client Anchor generates from it"
+repository = "https://github.com/piggygang/raffles-program"
+edition = "2021"
+# The indexer and raffles-services build on Rust 1.90, and take this crate by
+# its git tag. CI builds it on 1.90.
+rust-version = "1.90"
+publish = false
+
+# Its own workspace, outside the program workspace. Resolver 3 picks versions
+# that build on `rust-version`, and as a member this crate would lower the
+# program's to 1.90.
+[workspace]
+resolver = "3"
+
+[lib]
+name = "raffles_client"
+
+[features]
+default = ["anchor"]
+# The typed client: accounts, events, instruction builders, parsers and
+# addresses. Without it the crate is the IDL alone, with no dependency.
+anchor = ["dep:anchor-lang"]
+# `declare_program!` names this feature in the code it generates. Nothing
+# turns it on.
+idl-build = []
+
+[dependencies]
+# The exact Anchor of the program: `declare_program!` reads the IDL that
+# version wrote.
+anchor-lang = { version = "=1.2.2", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[test]]
+name = "client"
+required-features = ["anchor"]
+
+[lints.rust]
+# `declare_program!` generates code for both targets.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
