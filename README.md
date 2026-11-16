@@ -117,16 +117,20 @@ cargo clippy --locked --all-targets -- -D warnings
 
 `scripts/fixtures` is one too. CI runs the same two commands there, plus `cargo test --locked`.
 
-The two clients have a job each:
+The two clients have a job each. The Rust client is its own workspace, and its consumers build on Rust 1.90:
 
 ```sh
-cd clients/rust    # its own workspace: its consumers build on Rust 1.90
+cd clients/rust
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo +1.90 build --locked
+```
 
-cd clients/ts      # nothing generated is committed
+Nothing the TypeScript client generates is committed:
+
+```sh
+cd clients/ts
 npm ci --ignore-scripts
 npm run build
 npm test
@@ -153,7 +157,9 @@ The script refuses to deploy when:
 - the Solana CLI isn't the pinned version
 - `programs/` or `Cargo.*` has uncommitted changes (override with `--allow-dirty`)
 - `HEAD` isn't a release: the tag `v<version>` of the program's version (override with `--untagged`)
+- `deployments.json` doesn't pass its check, or lacks a deployment that `main` has recorded, as a checkout of an older tag does
 - the authority keypair doesn't match the program's upgrade authority on devnet
+- `HEAD` moves while it builds
 
 It upgrades when the program exists and does the first deploy otherwise. After deploying, it checks that the on-chain hash matches the build. Then it records the deployment in `deployments.json`: the release, the commit, the slot and the hashes. Commit that file. It is what tells the indexer, raffles-services and the app which interface devnet speaks, and an `--untagged` deployment is recorded without a version, so they can tell that no release describes it ([docs/releases.md](docs/releases.md), section 3).
 

@@ -2,25 +2,34 @@
 # deployments.json: which release of the program each cluster runs, and since
 # which slot (docs/releases.md has the format).
 #
-#   scripts/deployments.sh check
-#   scripts/deployments.sh plan --cluster <cluster> [--untagged]
+#   scripts/deployments.sh check [--base <ref>]
+#   scripts/deployments.sh plan --cluster <cluster> [--untagged] [--base <ref>]
 #   scripts/deployments.sh record --cluster <cluster> --slot <slot> \
-#                                 --executable-hash <hash> [--untagged]
+#                                 --executable-hash <hash> [--untagged] \
+#                                 [--base <ref>]
 #
 #   check    The file is well-formed, devnet's program is `declare_id!`, and
 #            each release it names is that tag's commit and IDL. Needs the
-#            tags: `git fetch --tags`.
+#            tags: `git fetch --tags`. With --base, the file also still has
+#            every deployment of that commit's file, each in its place.
 #   plan     Says what `record` would write for HEAD, or why it couldn't.
 #            scripts/deploy-devnet.sh asks before it deploys, so that a
 #            deployment it can't record never happens.
-#   record   Appends the deployment of HEAD to a cluster's list, then checks
-#            the file. scripts/deploy-devnet.sh calls it after a deploy.
+#   record   Appends the deployment of HEAD to a cluster's list.
+#            scripts/deploy-devnet.sh calls it after a deploy.
 #
-# None of them sends anything: `record` only writes deployments.json.
+# The file only grows. So `plan` and `record` start from a file that passes
+# `check` and has every deployment main has recorded: a checkout of an older
+# tag has the file as it was then, and appending to that would drop the
+# deployments since. They fetch main from origin to compare.
 #
-#   --untagged  HEAD isn't a release: record the deployment without a
-#               version, and without a commit if the tree is dirty. Consumers
-#               then know the cluster runs an interface no release describes.
+# None of the three sends a transaction, and only `record` writes a file.
+#
+#   --untagged    HEAD isn't a release: record the deployment without a
+#                 version, and without a commit if the tree is dirty. Consumers
+#                 then know the cluster runs an interface no release describes.
+#   --base <ref>  The commit whose deployments the file has to keep. `plan` and
+#                 `record` take it in place of main as origin has it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -47,7 +56,8 @@ sha256() {
   sha256sum | cut -d' ' -f1
 }
 
-# The file's shape, as a list of what is wrong with it.
+# The shape of the deployments file at `path`, as a list of what is wrong
+# with it.
 shape_errors() {
   jq -r '
     def hex($n): type == "string" and test("^[0-9a-f]{\($n)}$");
@@ -95,15 +105,18 @@ shape_errors() {
         )
       )
     ] | .[]
-  ' "$file"
+  ' "$1"
 }
 
-check() {
-  [[ -f $file ]] || die "no $file"
-  jq empty "$file" 2>/dev/null || die "$file is not JSON"
+# Stops unless the deployments file at `path` is one `check` accepts: the
+# file itself, or what `record` is about to write over it.
+validate() {
+  local path=$1
+  [[ -f $path ]] || die "no $file"
+  jq empty "$path" 2>/dev/null || die "$file is not JSON"
 
   local errors
-  errors=$(shape_errors)
+  errors=$(shape_errors "$path")
   if [[ -n $errors ]]; then
     echo "$file:" >&2
     sed 's/^/  /' <<<"$errors" >&2
@@ -112,7 +125,7 @@ check() {
 
   local program_id devnet_id
   program_id=$(sed -n 's/^declare_id!("\(.*\)");$/\1/p' programs/raffles/src/lib.rs)
-  devnet_id=$(jq -r '.clusters.devnet.program_id' "$file")
+  devnet_id=$(jq -r '.clusters.devnet.program_id' "$path")
   [[ $devnet_id == "$program_id" ]] ||
     die "$file: devnet's program_id is $devnet_id, but declare_id! is $program_id"
 
@@ -129,8 +142,71 @@ check() {
   done < <(jq -r '
     .clusters | to_entries[] | .key as $cluster | .value.deployments[]
     | select(.version != null) | [$cluster, .version, .commit, .idl_sha256] | @tsv
-  ' "$file")
+  ' "$path")
+}
 
+# What the file at `path` has lost of the deployments `commit` recorded: a
+# line per cluster, and none when it still starts with every one of them.
+history_errors() {
+  local commit=$1 path=$2
+  # A commit from before the file existed recorded nothing.
+  git cat-file -e "$commit:$file" 2>/dev/null || return 0
+  jq -rn --slurpfile here "$path" --slurpfile there <(git show "$commit:$file") '
+    ($there[0].clusters // {}) | to_entries[] | .key as $cluster
+    | (.value.deployments // []) as $recorded
+    | ($here[0].clusters[$cluster].deployments // []) as $kept
+    | [range($recorded | length) | select($kept[.] != $recorded[.])][0]
+    | select(. != null)
+    | "\($cluster): deployment \(. + 1) of \($recorded | length) is missing or changed"
+  ' || die "$file at $commit is not JSON"
+}
+
+# Stops unless the file at `path` still has what `commit` recorded. `advice`
+# is what to do about it, if there is something.
+keeps_history() {
+  local commit=$1 path=$2 advice=$3 errors
+  errors=$(history_errors "$commit" "$path")
+  [[ -n $errors ]] || return 0
+  {
+    echo "error: $file doesn't have every deployment that ${commit:0:7} recorded:"
+    sed 's/^/  /' <<<"$errors"
+    [[ -z $advice ]] || echo "$advice"
+  } >&2
+  exit 1
+}
+
+# The file as `plan` and `record` need it before a deployment is added: one
+# `check` accepts, with every deployment `base` recorded. `base` is main as
+# origin has it now, unless one was given.
+ready() {
+  local base=$1 commit
+  validate "$file"
+
+  if [[ -z $base ]]; then
+    git fetch --quiet origin main ||
+      die "could not fetch main from origin, to see which deployments it has recorded. Pass --base <ref> to compare with a commit of this clone"
+    base=FETCH_HEAD
+  fi
+  commit=$(git rev-parse -q --verify "$base^{commit}") || die "no commit '$base' to compare $file with"
+  keeps_history "$commit" "$file" "A checkout of an older tag has the file as it was then. Take the newer one first:
+  git checkout $commit -- $file
+Then record again any deployment this file had and that one doesn't."
+}
+
+check() {
+  local base="" commit
+  while (($# > 0)); do
+    case "$1" in
+      --base) base=${2:-}; shift 2 || die "--base needs a ref" ;;
+      *) die "unknown argument: $1 (see --help)" ;;
+    esac
+  done
+
+  validate "$file"
+  if [[ -n $base ]]; then
+    commit=$(git rev-parse -q --verify "$base^{commit}") || die "no commit '$base' to compare $file with"
+    keeps_history "$commit" "$file" "The file only grows: put them back, and add below them."
+  fi
   echo "$file: ok"
 }
 
@@ -165,16 +241,19 @@ describe_head() {
 }
 
 plan() {
-  local cluster="" untagged=false version commit idl_sha256
+  local cluster="" untagged=false base="" version commit idl_sha256
   while (($# > 0)); do
     case "$1" in
       --cluster) cluster=${2:-}; shift 2 || die "--cluster needs a cluster" ;;
       --untagged) untagged=true; shift ;;
+      --base) base=${2:-}; shift 2 || die "--base needs a ref" ;;
       *) die "unknown argument: $1 (see --help)" ;;
     esac
   done
   [[ -n $cluster ]] || die "plan needs --cluster (see --help)"
 
+  # Before anything is deployed: what would stop `record` afterwards.
+  ready "$base"
   describe_head "$cluster" "$untagged"
   if [[ -n $version ]]; then
     echo "release $version"
@@ -186,13 +265,14 @@ plan() {
 }
 
 record() {
-  local cluster="" slot="" executable_hash="" untagged=false version commit idl_sha256
+  local cluster="" slot="" executable_hash="" untagged=false base="" version commit idl_sha256
   while (($# > 0)); do
     case "$1" in
       --cluster) cluster=${2:-}; shift 2 || die "--cluster needs a cluster" ;;
       --slot) slot=${2:-}; shift 2 || die "--slot needs a slot" ;;
       --executable-hash) executable_hash=${2:-}; shift 2 || die "--executable-hash needs a hash" ;;
       --untagged) untagged=true; shift ;;
+      --base) base=${2:-}; shift 2 || die "--base needs a ref" ;;
       *) die "unknown argument: $1 (see --help)" ;;
     esac
   done
@@ -201,6 +281,7 @@ record() {
   [[ $slot =~ ^[1-9][0-9]*$ ]] || die "--slot is a slot number, not '$slot'"
   [[ $executable_hash =~ ^[0-9a-f]{64}$ ]] || die "--executable-hash is 64 hex digits"
 
+  ready "$base"
   describe_head "$cluster" "$untagged"
 
   local last
@@ -220,14 +301,15 @@ record() {
         idl_sha256: $idl_sha256
       }]
     ' "$file" >"$updated"
+  # The file is replaced only by one that passes.
+  validate "$updated"
   cat "$updated" >"$file"
 
-  check >/dev/null
   echo "$file: recorded ${version:+release }${version:-an untagged build} on $cluster at slot $slot"
 }
 
 case "${1:-}" in
-  check) shift; (($# == 0)) || die "check takes no argument"; check ;;
+  check) shift; check "$@" ;;
   plan) shift; plan "$@" ;;
   record) shift; record "$@" ;;
   -h | --help) usage ;;

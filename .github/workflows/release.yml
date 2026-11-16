@@ -14,6 +14,12 @@ on:
 permissions:
   contents: read
 
+# One run per tag at a time. The publishing step starts over from a draft it
+# finds, which is only right when no other run is still making that draft.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: 24.19.0
 
@@ -75,14 +81,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            # A rerun. A release never changes, so it has to be the same one.
-            gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS --dir published
-            cmp published/SHA256SUMS release/SHA256SUMS
-          else
+          create() {
             gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
               --notes-file notes.md --generate-notes release/*
+          }
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>view.err); then
+            if [[ $draft == true ]]; then
+              # A run that stopped while it created the release left a draft:
+              # `gh release create` uploads to a draft and publishes it last.
+              # Nobody outside has seen a draft, so this starts over.
+              gh release delete "$GITHUB_REF_NAME" --yes
+              create
+            fi
+          elif grep -qF "release not found" view.err; then
+            create
+          else
+            cat view.err >&2
+            exit 1
           fi
+
+          # However it got here, the release is public and has exactly these
+          # files. A release never changes, so a rerun finds the same one.
+          [[ $(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft) == false ]]
+          gh release download "$GITHUB_REF_NAME" --dir published
+          cmp published/SHA256SUMS release/SHA256SUMS
+          (cd published && sha256sum --check --strict SHA256SUMS)
+          [[ $(find published -type f | wc -l) -eq 4 ]]
 
       # Off until the repository variable NPM_PUBLISH is `true`: the package
       # needs its npm organization and a trusted publisher first

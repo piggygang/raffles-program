@@ -70,6 +70,17 @@ jobs:
       - name: deployments.json agrees with the tags
         run: scripts/deployments.sh check
 
+      # The file only grows: a pull request keeps every deployment its base
+      # has recorded, each in its place. The first one's slot is where the
+      # indexer's history starts.
+      - name: deployments.json keeps every deployment
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --quiet --depth 1 origin "$BASE_SHA"
+          scripts/deployments.sh check --base FETCH_HEAD
+
       # Switchboard asks for `solana-program >=3`, which a plain `cargo update`
       # resolves to the newest major: a second Solana SDK next to the 3.x that
       # the Metaplex crates use. Cargo.lock pins it to the shared version.

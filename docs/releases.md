@@ -139,10 +139,11 @@ Which release each cluster runs, and every deployment before it.
 | `idl_sha256` | The IDL hash of what was deployed |
 
 - **The first deployment's `slot` is where the program's history starts:** the `deploy_slot` of the indexer's `raffles.toml`, and the floor of its backfill. A later deployment's slot is where the interface may have changed, so a replay decodes each transaction with the release that was live at its slot.
-- **`scripts/deploy-devnet.sh` writes it,** after it has checked the hash on-chain. It refuses to deploy what it couldn't record: without `--untagged`, `HEAD` has to be the release's tag.
+- **`scripts/deploy-devnet.sh` writes it,** after it has checked the hash on-chain. It refuses to deploy what it couldn't record: without `--untagged`, `HEAD` has to be the release's tag, and the file has to pass its check as it is.
 - **A `null` version says the cluster runs an interface no release describes.** A consumer can still compare `idl_sha256` with its pinned release's.
-- **The file is committed to `main` after the deployment.** So the tag of a release never contains its own deployment: read the file from `main`.
-- **CI checks it.** The file has the format above, devnet's `program_id` is `declare_id!`, slots only grow, and each release it names is that tag's commit and IDL.
+- **The file is committed to `main` after the deployment,** in a pull request. So the tag of a release never contains its own deployment: read the file from `main`.
+- **The file only grows.** A deployment, once recorded, keeps its place. A checkout of an older tag has the file as it was at the tag, and appending to that would drop every deployment since, the first one's slot with them. So before it builds, the deploy script compares the file with `main`'s, stops when `main` has recorded more, and says how to take `main`'s file first.
+- **CI checks it.** The file has the format above, devnet's `program_id` is `declare_id!`, slots only grow, each release it names is that tag's commit and IDL, and a pull request keeps every deployment its base has.
 
 ## 4. Cutting a release
 
@@ -156,8 +157,8 @@ Which release each cluster runs, and every deployment before it.
 
    The first command writes the version into the program's and both clients' manifests and lockfiles. The IDL takes it from the build.
 2. **Tag the merged commit** on `main`, and push the tag: `v0.2.0`. A person does this.
-3. **The release workflow** runs the whole gate on the tag, then publishes the artifacts of section 1 from what the gate built. A tag that doesn't match the version, or a commit that fails the gate, publishes nothing.
-4. **Deploy it,** from the tag: `scripts/deploy-devnet.sh`. Commit the `deployments.json` it wrote.
+3. **The release workflow** runs the whole gate on the tag, then publishes the artifacts of section 1 from what the gate built. A tag that doesn't match the version, or a commit that fails the gate, publishes nothing. A run that stopped halfway can be run again: it publishes the release, or finds it published and checks that its files are the same.
+4. **Deploy it,** from the tag: `scripts/deploy-devnet.sh`. Commit the `deployments.json` it wrote, in a pull request to `main`.
 5. **Each consumer bumps its pin.**
 
 A release that is only deployed later, or never, is still a release: the tag and the deployment are separate steps.

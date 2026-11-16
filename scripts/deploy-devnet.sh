@@ -83,13 +83,18 @@ sed -n '/^\[programs\.devnet\]$/,/^\[/p' Anchor.toml | grep -qxF "raffles = \"$p
 authority_pubkey=$(solana-keygen pubkey "$authority")
 
 commit=$(git rev-parse --short HEAD 2>/dev/null) || die "no commit to deploy yet"
+# The build and the deploy take minutes, and the record describes HEAD: it has
+# to be this commit still, both when the build is deployed and when it is
+# recorded.
+head=$(git rev-parse HEAD)
 if [[ -n $(git status --porcelain -- programs Cargo.toml Cargo.lock) ]]; then
   $allow_dirty || die "uncommitted changes under programs/ or Cargo.*; commit first or pass --allow-dirty"
   commit="$commit+dirty"
 fi
 
 # What deployments.json will say devnet runs. Asked before anything is built:
-# a deployment that can't be recorded must not happen.
+# a deployment that can't be recorded must not happen. So this also stops when
+# the file doesn't pass its check, or lacks a deployment main has recorded.
 record=(--cluster devnet)
 if $untagged; then
   record+=(--untagged)
@@ -118,6 +123,8 @@ fi
 echo "Building $commit in Docker with solana-verify $(solana-verify --version | awk '{print $2}')..."
 solana-verify build --library-name raffles --arch v3
 hash=$(solana-verify get-executable-hash "$binary")
+[[ $(git rev-parse HEAD) == "$head" ]] ||
+  die "HEAD moved during the build, so the build may not be of ${head:0:7}: nothing was deployed"
 
 cat <<EOF
 
@@ -171,5 +178,10 @@ slot=$(solana program show "$program_id" --url "$rpc_url" --keypair "$authority"
   jq -r '.lastDeploySlot') || slot=
 [[ $slot =~ ^[1-9][0-9]*$ ]] ||
   die "deployed, but could not read the deploy slot. Record it by hand: scripts/deployments.sh record ${record[*]} --slot <slot> --executable-hash $hash"
-scripts/deployments.sh record "${record[@]}" --slot "$slot" --executable-hash "$hash"
+by_hand="scripts/deployments.sh record ${record[*]} --slot $slot --executable-hash $hash"
+# `record` describes HEAD, so it has to be the commit that was built.
+[[ $(git rev-parse HEAD) == "$head" ]] ||
+  die "deployed, but HEAD moved meanwhile, and the record describes HEAD. Check out $head, then record it by hand: $by_hand"
+scripts/deployments.sh record "${record[@]}" --slot "$slot" --executable-hash "$hash" ||
+  die "deployed, but not recorded. Once what it reports is put right, record it by hand: $by_hand"
 echo "Commit deployments.json: until it is on main, nothing tells the consumers what devnet runs."
