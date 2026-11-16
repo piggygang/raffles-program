@@ -11,7 +11,8 @@
 #   check    The file is well-formed, devnet's program is `declare_id!`, and
 #            each release it names is that tag's commit and IDL. Needs the
 #            tags: `git fetch --tags`. With --base, the file also still has
-#            every deployment of that commit's file, each in its place.
+#            every deployment of that commit's file, each in its place and
+#            under the same program.
 #   plan     Says what `record` would write for HEAD, or why it couldn't.
 #            scripts/deploy-devnet.sh asks before it deploys, so that a
 #            deployment it can't record never happens.
@@ -145,8 +146,10 @@ validate() {
   ' "$path")
 }
 
-# What the file at `path` has lost of the deployments `commit` recorded: a
-# line per cluster, and none when it still starts with every one of them.
+# What the file at `path` has lost of the deployments `commit` recorded, a
+# line each: a cluster's list no longer starts with every one of them, or its
+# program is another, which would make them that program's deployments. A
+# cluster without a deployment can still be given its program.
 history_errors() {
   local commit=$1 path=$2
   # A commit from before the file existed recorded nothing.
@@ -154,10 +157,17 @@ history_errors() {
   jq -rn --slurpfile here "$path" --slurpfile there <(git show "$commit:$file") '
     ($there[0].clusters // {}) | to_entries[] | .key as $cluster
     | (.value.deployments // []) as $recorded
-    | ($here[0].clusters[$cluster].deployments // []) as $kept
-    | [range($recorded | length) | select($kept[.] != $recorded[.])][0]
-    | select(. != null)
-    | "\($cluster): deployment \(. + 1) of \($recorded | length) is missing or changed"
+    | .value.program_id as $program
+    | ($here[0].clusters[$cluster] // {}) as $mine
+    | ($mine.deployments // []) as $kept
+    | select(($recorded | length) > 0)
+    | (
+        (select($mine.program_id != $program)
+          | "\($cluster): its program_id is no longer \($program), the program of its recorded deployments"),
+        ([range($recorded | length) | select($kept[.] != $recorded[.])][0]
+          | select(. != null)
+          | "\($cluster): deployment \(. + 1) of \($recorded | length) is missing or changed")
+      )
   ' || die "$file at $commit is not JSON"
 }
 
@@ -168,7 +178,7 @@ keeps_history() {
   errors=$(history_errors "$commit" "$path")
   [[ -n $errors ]] || return 0
   {
-    echo "error: $file doesn't have every deployment that ${commit:0:7} recorded:"
+    echo "error: $file doesn't keep what ${commit:0:7} recorded:"
     sed 's/^/  /' <<<"$errors"
     [[ -z $advice ]] || echo "$advice"
   } >&2
@@ -205,7 +215,7 @@ check() {
   validate "$file"
   if [[ -n $base ]]; then
     commit=$(git rev-parse -q --verify "$base^{commit}") || die "no commit '$base' to compare $file with"
-    keeps_history "$commit" "$file" "The file only grows: put them back, and add below them."
+    keeps_history "$commit" "$file" "The file only grows: a recorded deployment keeps its place and its program. Add below."
   fi
   echo "$file: ok"
 }

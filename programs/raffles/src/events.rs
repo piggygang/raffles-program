@@ -11,10 +11,10 @@
 //! - A raffle's event starts with `raffle`.
 //! - Fixed-size fields come before variable-length ones.
 //! - A field named like an account field carries that field's value once the
-//!   instruction has run. So events hold values, not changes: applying one
-//!   twice does no harm, and neither does a late one, as long as the reader
-//!   keeps the value of the event that is later on the chain
-//!   (docs/events.md, section 5).
+//!   instruction has run: a reader keeps the value of the event that is later
+//!   on the chain. Every other field says what that one instruction did, such
+//!   as a claim's range and NFTs: a reader keeps each event's, and applies an
+//!   event only once (docs/events.md, section 5).
 //! - Kinds, states and reasons are a `u8`, as in the accounts.
 //! - Its name and its fields never change: the discriminator derives from the
 //!   name, and readers decode by position. A new need gets a new event.

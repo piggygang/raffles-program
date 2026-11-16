@@ -130,7 +130,7 @@ Which release each cluster runs, and every deployment before it.
 
 | Field | Is |
 | --- | --- |
-| `program_id` | The program's address on the cluster, or `null` before it has one |
+| `program_id` | The program's address on the cluster, or `null` before it has one. It stays once the cluster has a deployment. |
 | `deployments` | Every deployment, oldest first. The last one is what the cluster runs. |
 | `version` | The release, without the `v`. `null` for a build that isn't a release. |
 | `commit` | The commit that was built. `null` when the tree had uncommitted changes. |
@@ -142,8 +142,8 @@ Which release each cluster runs, and every deployment before it.
 - **`scripts/deploy-devnet.sh` writes it,** after it has checked the hash on-chain. It refuses to deploy what it couldn't record: without `--untagged`, `HEAD` has to be the release's tag, and the file has to pass its check as it is.
 - **A `null` version says the cluster runs an interface no release describes.** A consumer can still compare `idl_sha256` with its pinned release's.
 - **The file is committed to `main` after the deployment,** in a pull request. So the tag of a release never contains its own deployment: read the file from `main`.
-- **The file only grows.** A deployment, once recorded, keeps its place. A checkout of an older tag has the file as it was at the tag, and appending to that would drop every deployment since, the first one's slot with them. So before it builds, the deploy script compares the file with `main`'s, stops when `main` has recorded more, and says how to take `main`'s file first.
-- **CI checks it.** The file has the format above, devnet's `program_id` is `declare_id!`, slots only grow, each release it names is that tag's commit and IDL, and a pull request keeps every deployment its base has.
+- **The file only grows.** A deployment, once recorded, keeps its place and its cluster's `program_id`: under another address it would be another program's deployment. A checkout of an older tag has the file as it was at the tag, and appending to that would drop every deployment since, the first one's slot with them. So before it builds, the deploy script compares the file with `main`'s, stops when `main` has recorded more, and says how to take `main`'s file first.
+- **CI checks it.** The file has the format above, devnet's `program_id` is `declare_id!`, slots only grow, each release it names is that tag's commit and IDL, and a pull request keeps every deployment its base has, under the same `program_id`.
 
 ## 4. Cutting a release
 

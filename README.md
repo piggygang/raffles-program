@@ -96,7 +96,7 @@ cargo test -p claim-spike --test integration budget -- --nocapture --test-thread
 
 Its `stand_ins` test runs the fixture set (PIG-115) through `claim_entries`: each stand-in passes and each look-alike fails. The accounts come from `scripts/fixtures/localnet.sh`, which builds the set on a local validator.
 
-CI runs:
+CI runs the blocks below, each from the repository root:
 
 ```sh
 cargo fmt --all --check
