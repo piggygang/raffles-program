@@ -8,4 +8,5 @@
 
 mod harness;
 mod hello;
+mod interface;
 mod metaplex;

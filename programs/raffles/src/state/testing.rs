@@ -1,8 +1,9 @@
-//! What the layout tests share. Each test spells out its account's fields in
-//! order. The helpers check that list against the bytes the program writes,
-//! and require the table in docs/account-model.md to be exactly the rows it
-//! gives. So a field can't move, grow, appear or go without the test and the
-//! document following, and the document can't list what the code doesn't have.
+//! What the layout tests share. Each test spells out the fields of its
+//! account or event in order. The helpers check that list against the bytes
+//! the program writes, and require the table in the published document to be
+//! exactly the rows it gives. So a field can't move, grow, appear or go
+//! without the test and the document following, and the document can't list
+//! what the code doesn't have.
 
 use {
     crate::error::RaffleError,
@@ -10,8 +11,34 @@ use {
     std::fmt::Debug,
 };
 
-/// Where the layouts are published.
-const DOC: &str = include_str!("../../../../docs/account-model.md");
+/// A published document that the tests hold to the code.
+pub struct Doc {
+    path: &'static str,
+    text: &'static str,
+}
+
+/// Where the accounts, the enums, the constants and the state machine are
+/// published.
+pub const ACCOUNT_MODEL: Doc = Doc {
+    path: "docs/account-model.md",
+    text: include_str!("../../../../docs/account-model.md"),
+};
+
+/// Where the events are published.
+pub const EVENTS: Doc = Doc {
+    path: "docs/events.md",
+    text: include_str!("../../../../docs/events.md"),
+};
+
+/// How a layout table gives the size of a `String` or a `Vec`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sizes {
+    /// An account is allocated for its longest strings, so the row also says
+    /// how long that is.
+    Allocated,
+    /// An event is as long as its strings and lists are.
+    Actual,
+}
 
 /// One row of a layout table: a field, and its Borsh bytes in the sample.
 pub struct Field {
@@ -61,12 +88,51 @@ where
     let mut rows = vec![format!(
         "| 0 | discriminator | `[u8; 8]` | 8 | `{discriminator}` |"
     )];
-    rows.extend(layout_rows(name, &bytes, 8, fields));
+    rows.extend(layout_rows(name, &bytes, 8, fields, Sizes::Allocated).rows);
     assert_eq!(bytes.len(), space, "{name}: size");
     rows.push(format!("| | **total** | | **{space}** |"));
     assert_table(&format!("### {name}"), "", &rows);
     assert_eq!(
         &T::try_deserialize(&mut &bytes[..]).unwrap(),
+        sample,
+        "{name}: round trip"
+    );
+}
+
+/// Checks an event's layout:
+/// - `sample` serializes to its discriminator, then `fields` in order
+/// - the bytes read back as `sample`
+/// - the table of the `### {name}` section of docs/events.md is the
+///   discriminator, each field at its offset, and the size: those rows and no
+///   others
+///
+/// An event has no allocated size. Its total is exact when every field is
+/// fixed-size, and otherwise the least it can be: with every `String` and
+/// `Vec` empty.
+pub fn assert_event<T>(name: &str, sample: &T, fields: &[Field])
+where
+    T: anchor_lang::Event + Discriminator + AnchorDeserialize + PartialEq + Debug,
+{
+    let bytes = sample.data();
+    let discriminator: String = T::DISCRIMINATOR
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    assert_eq!(&bytes[..8], T::DISCRIMINATOR, "{name}: discriminator");
+    let mut rows = vec![format!(
+        "| 0 | discriminator | `[u8; 8]` | 8 | `{discriminator}` |"
+    )];
+    let layout = layout_rows(name, &bytes, 8, fields, Sizes::Actual);
+    rows.extend(layout.rows);
+    rows.push(if layout.varies {
+        format!("| | **total** | | **at least {}** |", layout.least)
+    } else {
+        format!("| | **total** | | **{}** |", layout.least)
+    });
+    EVENTS.assert_table(&format!("### {name}"), "", &rows);
+    assert_eq!(
+        &T::try_from_slice(&bytes[8..]).unwrap(),
         sample,
         "{name}: round trip"
     );
@@ -80,7 +146,7 @@ where
     let mut bytes = Vec::new();
     sample.serialize(&mut bytes).unwrap();
 
-    let mut rows = layout_rows(name, &bytes, 0, fields);
+    let mut rows = layout_rows(name, &bytes, 0, fields, Sizes::Allocated).rows;
     assert_eq!(bytes.len(), space, "{name}: size");
     rows.push(format!("| | **total** | | **{space}** |"));
     assert_table(&format!("### {name}"), "", &rows);
@@ -127,35 +193,86 @@ pub fn assert_error<T: Debug>(result: Result<T>, expected: RaffleError) {
     }
 }
 
-/// The table under the document's heading `heading` is exactly `rows`, in
-/// order. A row may go on past what is given: the last column is prose.
-/// `indent` is what precedes each line of a table nested in a list.
+/// The account model's table under `heading` is exactly `rows`: see
+/// [`Doc::assert_table`].
 pub fn assert_table(heading: &str, indent: &str, rows: &[String]) {
-    let table: Vec<&str> = section(heading)
-        .lines()
-        .filter_map(|line| line.strip_prefix(indent))
-        .filter(|line| line.starts_with('|'))
-        // The header and the line under it.
-        .skip(2)
-        .collect();
-    let same = table.len() == rows.len()
-        && table
-            .iter()
-            .zip(rows)
-            .all(|(line, row)| line.starts_with(row.as_str()));
-
-    assert!(
-        same,
-        "docs/account-model.md, `{heading}`: the table has to be these rows, each followed by \
-         its last column:\n{}\n\nIt is:\n{}",
-        rows.join("\n"),
-        table.join("\n")
-    );
+    ACCOUNT_MODEL.assert_table(heading, indent, rows);
 }
 
-/// Whether the document says `text` anywhere.
+/// Whether the account model says `text` anywhere.
 pub fn doc_says(text: &str) -> bool {
-    DOC.contains(text)
+    ACCOUNT_MODEL.says(text)
+}
+
+impl Doc {
+    /// The table under the document's heading `heading` is exactly `rows`,
+    /// in order. A row may go on past what is given: the last column is
+    /// prose. `indent` is what precedes each line of a table nested in a
+    /// list.
+    pub fn assert_table(&self, heading: &str, indent: &str, rows: &[String]) {
+        let table: Vec<&str> = self
+            .section(heading)
+            .lines()
+            .filter_map(|line| line.strip_prefix(indent))
+            .filter(|line| line.starts_with('|'))
+            // The header and the line under it.
+            .skip(2)
+            .collect();
+        let same = table.len() == rows.len()
+            && table
+                .iter()
+                .zip(rows)
+                .all(|(line, row)| line.starts_with(row.as_str()));
+
+        assert!(
+            same,
+            "{}, `{heading}`: the table has to be these rows, each followed by its last \
+             column:\n{}\n\nIt is:\n{}",
+            self.path,
+            rows.join("\n"),
+            table.join("\n")
+        );
+    }
+
+    /// Whether the document says `text` anywhere.
+    pub fn says(&self, text: &str) -> bool {
+        self.text.contains(text)
+    }
+
+    /// The headings one level below `heading`, without their `#`s: the
+    /// sections a chapter has, in order.
+    pub fn subsections(&self, heading: &str) -> Vec<&'static str> {
+        let level = heading.chars().take_while(|&c| c == '#').count() + 1;
+        let prefix = format!("{} ", "#".repeat(level));
+        self.section(heading)
+            .lines()
+            .filter_map(|line| line.trim_end().strip_prefix(prefix.as_str()))
+            .collect()
+    }
+
+    /// The document's section under `heading`, a whole heading line such as
+    /// `### Config`, up to the next heading of that level or above.
+    fn section(&self, heading: &str) -> &'static str {
+        let level = heading.chars().take_while(|&c| c == '#').count();
+        let mut start = None;
+        let mut offset = 0;
+        for line in self.text.split_inclusive('\n') {
+            let text = line.trim_end();
+            let hashes = text.chars().take_while(|&c| c == '#').count();
+            match start {
+                None if text == heading => start = Some(offset),
+                Some(start) if (1..=level).contains(&hashes) && text[hashes..].starts_with(' ') => {
+                    return &self.text[start..offset];
+                }
+                _ => {}
+            }
+            offset += line.len();
+        }
+        match start {
+            Some(start) => &self.text[start..],
+            None => panic!("{} has no `{heading}` section", self.path),
+        }
+    }
 }
 
 /// `1183640` as the document writes it: `1,183,640`.
@@ -171,14 +288,24 @@ pub fn grouped(number: u64) -> String {
     grouped
 }
 
+/// What `layout_rows` found.
+struct Layout {
+    /// The rows the document's table has to have, one per field.
+    rows: Vec<String>,
+    /// Where the last field ends when every `String` and `Vec` is empty.
+    least: usize,
+    /// Whether a field's size depends on its value.
+    varies: bool,
+}
+
 /// Walks `fields` over `bytes` from `start`, checking that each is where the
 /// one before it ends and that nothing follows the last, and returns the rows
 /// the document's table has to have.
 ///
-/// A `String` is as long as its text, so its row gives its size as a range,
-/// and the offset of whatever follows it counts its four-byte length and
-/// names the text.
-fn layout_rows(name: &str, bytes: &[u8], start: usize, fields: &[Field]) -> Vec<String> {
+/// A `String` is as long as its text and a `Vec` as long as its items, so
+/// their rows give a formula for the size, and the offset of whatever follows
+/// counts the four-byte length and names what varies.
+fn layout_rows(name: &str, bytes: &[u8], start: usize, fields: &[Field], sizes: Sizes) -> Layout {
     for (index, field) in fields.iter().enumerate() {
         for other in &fields[index + 1..] {
             // Otherwise swapping the two would leave the bytes as they are.
@@ -193,9 +320,10 @@ fn layout_rows(name: &str, bytes: &[u8], start: usize, fields: &[Field]) -> Vec<
 
     let mut rows = Vec::new();
     let mut at = start;
-    // The offset if every `String` before were empty, and those strings.
+    // The offset if every `String` and `Vec` before were empty, and what
+    // those add.
     let mut fixed = start;
-    let mut texts: Vec<&str> = Vec::new();
+    let mut varying: Vec<String> = Vec::new();
     for field in fields {
         let end = at + field.bytes.len();
         assert_eq!(
@@ -205,16 +333,33 @@ fn layout_rows(name: &str, bytes: &[u8], start: usize, fields: &[Field]) -> Vec<
             field.name
         );
         let offset = std::iter::once(fixed.to_string())
-            .chain(texts.iter().map(|text| format!("`{text}` length")))
+            .chain(varying.iter().cloned())
             .collect::<Vec<_>>()
             .join(" + ");
         let (field_name, ty, len) = (field.name, field.ty, field.bytes.len());
         if ty == "String" {
+            rows.push(match sizes {
+                Sizes::Allocated => {
+                    format!("| {offset} | `{field_name}` | `String` | 4 + length, up to {len} |")
+                }
+                Sizes::Actual => format!("| {offset} | `{field_name}` | `String` | 4 + length |"),
+            });
+            fixed += 4;
+            varying.push(format!("`{field_name}` length"));
+        } else if ty.starts_with("Vec<") {
+            assert!(sizes == Sizes::Actual, "{name}: an account holds no `Vec`");
+            let count =
+                usize::try_from(u32::from_le_bytes(field.bytes[..4].try_into().unwrap())).unwrap();
+            assert!(
+                count > 0 && (len - 4).is_multiple_of(count),
+                "{name}: the sample's `{field_name}` has to hold items, all of one size"
+            );
+            let item = (len - 4) / count;
             rows.push(format!(
-                "| {offset} | `{field_name}` | `String` | 4 + length, up to {len} |"
+                "| {offset} | `{field_name}` | `{ty}` | 4 + {item} × count |"
             ));
             fixed += 4;
-            texts.push(field_name);
+            varying.push(format!("{item} × `{field_name}` count"));
         } else {
             rows.push(format!("| {offset} | `{field_name}` | `{ty}` | {len} |"));
             fixed += len;
@@ -222,29 +367,9 @@ fn layout_rows(name: &str, bytes: &[u8], start: usize, fields: &[Field]) -> Vec<
         at = end;
     }
     assert_eq!(bytes.len(), at, "{name}: bytes after the last field");
-    rows
-}
-
-/// The document's section under `heading`, a whole heading line such as
-/// `### Config`, up to the next heading of that level or above.
-fn section(heading: &str) -> &'static str {
-    let level = heading.chars().take_while(|&c| c == '#').count();
-    let mut start = None;
-    let mut offset = 0;
-    for line in DOC.split_inclusive('\n') {
-        let text = line.trim_end();
-        let hashes = text.chars().take_while(|&c| c == '#').count();
-        match start {
-            None if text == heading => start = Some(offset),
-            Some(start) if (1..=level).contains(&hashes) && text[hashes..].starts_with(' ') => {
-                return &DOC[start..offset];
-            }
-            _ => {}
-        }
-        offset += line.len();
-    }
-    match start {
-        Some(start) => &DOC[start..],
-        None => panic!("docs/account-model.md has no `{heading}` section"),
+    Layout {
+        rows,
+        least: fixed,
+        varies: !varying.is_empty(),
     }
 }

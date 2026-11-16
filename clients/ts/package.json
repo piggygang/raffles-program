@@ -1,0 +1,46 @@
+{
+  "name": "@piggygang/raffles-client",
+  "version": "0.1.0",
+  "description": "TypeScript client of the PiggyGang Raffles program, generated from its IDL with Codama",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/piggygang/raffles-program.git",
+    "directory": "clients/ts"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./idl.json": "./idl/raffles.json"
+  },
+  "files": [
+    "dist",
+    "idl"
+  ],
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "npm run generate && tsc",
+    "test": "node --test",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "@solana/kit": "^8.5.0"
+  },
+  "dependencies": {
+    "@solana/program-client-core": "^8.5.0"
+  },
+  "devDependencies": {
+    "@codama/nodes-from-anchor": "1.5.6",
+    "@codama/renderers-js": "2.9.0",
+    "@solana/kit": "8.6.0",
+    "@types/node": "^24.0.0",
+    "codama": "1.11.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=20.18.0"
+  }
+}
