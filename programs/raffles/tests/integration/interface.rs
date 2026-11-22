@@ -1,6 +1,6 @@
 //! The released interface against the program: the IDL of record
-//! (idls/raffles.json), the event document, and the Rust client
-//! (clients/rust), which `declare_program!` generates from that IDL.
+//! (idls/raffles.json), the event and instruction documents, and the Rust
+//! client (clients/rust), which `declare_program!` generates from that IDL.
 //!
 //! `anchor build` compiles this file in order to write the IDL. So nothing
 //! here may name what the client generates from the IDL's contents, such as
@@ -9,13 +9,14 @@
 //! what any IDL gives it (`ID`, `IDL`, `VERSION`).
 
 use {
-    crate::harness::Test,
+    crate::harness::{settings, Test},
     anchor_lang::{
         prelude::Pubkey,
         solana_program::instruction::{AccountMeta, Instruction},
         Event,
     },
     raffles::{
+        constants::PROGRAM_DATA,
         events::{EntriesClaimed, EntryAccountsClosed, RaffleClosed, RaffleCreated},
         state::{
             Config, CreatorEntry, EntryPosition, EntryRange, EntryReceipt, EscrowKind,
@@ -28,6 +29,7 @@ use {
 /// Written by `anchor build`, next to the program the tests load.
 const BUILT_IDL: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/../idl/raffles.json");
 const EVENTS_DOC: &str = include_str!("../../../../docs/events.md");
+const INSTRUCTIONS_DOC: &str = include_str!("../../../../docs/instructions.md");
 
 fn key(byte: u8) -> Pubkey {
     Pubkey::new_from_array([byte; 32])
@@ -36,6 +38,47 @@ fn key(byte: u8) -> Pubkey {
 /// An event instruction's data: Anchor's tag, then the event.
 fn event_instruction(event: &impl Event) -> Vec<u8> {
     [EVENT_TAG, &event.data()].concat()
+}
+
+fn idl() -> serde_json::Value {
+    serde_json::from_str(raffles_client::IDL).unwrap()
+}
+
+/// The rows of the table under the heading `heading` of `document`, a whole
+/// heading line such as `## 6. Errors`, each as its cells without their
+/// backticks. The section ends at the next heading of that level or above.
+fn table(document: &str, heading: &str) -> Vec<Vec<String>> {
+    let level = heading.chars().take_while(|&c| c == '#').count();
+    let ends_the_section = |line: &str| {
+        let hashes = line.chars().take_while(|&c| c == '#').count();
+        (1..=level).contains(&hashes) && line[hashes..].starts_with(' ')
+    };
+    let rows: Vec<Vec<String>> = document
+        .lines()
+        .skip_while(|line| *line != heading)
+        .skip(1)
+        .take_while(|line| !ends_the_section(line))
+        .filter(|line| line.starts_with('|'))
+        // The header and the line under it.
+        .skip(2)
+        .map(|line| {
+            line.trim_matches('|')
+                .split('|')
+                .map(|cell| cell.trim().trim_matches('`').to_owned())
+                .collect()
+        })
+        .collect();
+    assert!(!rows.is_empty(), "no table under `{heading}`");
+    rows
+}
+
+fn hex(bytes: &serde_json::Value) -> String {
+    bytes
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|byte| format!("{:02x}", byte.as_u64().unwrap()))
+        .collect()
 }
 
 #[test]
@@ -97,6 +140,7 @@ fn the_client_derives_every_address_as_the_program_does() {
         pda::event_authority(),
         Pubkey::find_program_address(&[b"__event_authority"], &raffles::ID)
     );
+    assert_eq!(pda::program_data().0, PROGRAM_DATA);
 }
 
 /// The events with a string, a list or a nested record are the ones a
@@ -166,9 +210,24 @@ fn the_client_reads_the_events_the_program_emits() {
     }
 }
 
+/// The same for an event the program emitted in a transaction: what a reader
+/// takes from the inner instructions is what the client reads.
+#[test]
+fn the_client_reads_an_event_from_a_transaction() {
+    let mut test = Test::new();
+
+    let sent = test.init_config(settings(0));
+
+    let events = sent.events();
+    assert_eq!(events.len(), 1);
+    let data = [EVENT_TAG, &events[0].data].concat();
+    assert!(matches!(read_event(&data), Some(Ok(_))));
+    assert!(matches!(read_event(&data[..data.len() - 1]), Some(Err(_))));
+}
+
 #[test]
 fn the_document_has_a_layout_for_each_event_of_the_idl_and_no_other() {
-    let idl: serde_json::Value = serde_json::from_str(raffles_client::IDL).unwrap();
+    let idl = idl();
     let mut in_idl: Vec<&str> = idl["events"]
         .as_array()
         .unwrap()
@@ -186,6 +245,120 @@ fn the_document_has_a_layout_for_each_event_of_the_idl_and_no_other() {
         .filter_map(|line| line.strip_prefix("### "))
         .collect();
     documented.sort_unstable();
+
+    assert!(!in_idl.is_empty());
+    assert_eq!(documented, in_idl);
+}
+
+/// The instructions document lists the IDL's instructions, each with its
+/// discriminator, and has a section for each: those and no others.
+#[test]
+fn the_document_lists_each_instruction_of_the_idl_and_no_other() {
+    let idl = idl();
+    let mut in_idl: Vec<(String, String)> = idl["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|instruction| {
+            (
+                instruction["name"].as_str().unwrap().to_owned(),
+                hex(&instruction["discriminator"]),
+            )
+        })
+        .collect();
+    in_idl.sort_unstable();
+
+    let rows = table(INSTRUCTIONS_DOC, "## 2. The instructions");
+    let mut documented: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| (row[0].clone(), row[1].clone()))
+        .collect();
+    documented.sort_unstable();
+
+    assert!(!in_idl.is_empty());
+    assert_eq!(documented, in_idl);
+
+    // The `###` headings of the document's section 3, in the table's order.
+    let sections: Vec<&str> = INSTRUCTIONS_DOC
+        .lines()
+        .skip_while(|line| *line != "## 3. Accounts and checks")
+        .skip(1)
+        .take_while(|line| !line.starts_with("## "))
+        .filter_map(|line| line.strip_prefix("### "))
+        .collect();
+    let listed: Vec<&str> = rows.iter().map(|row| row[0].as_str()).collect();
+    assert_eq!(sections, listed);
+}
+
+/// Each instruction's section of the document has its accounts as the IDL
+/// has them: in the order the instruction takes them, with what is written
+/// and what signs. A client builds from the IDL, so this is the order and the
+/// flags it sends.
+#[test]
+fn the_document_gives_each_instruction_the_accounts_of_the_idl() {
+    let yes_no = |flag: &serde_json::Value| {
+        if flag.as_bool().unwrap_or(false) {
+            "yes"
+        } else {
+            "no"
+        }
+    };
+    let idl = idl();
+    let instructions = idl["instructions"].as_array().unwrap();
+    assert!(!instructions.is_empty());
+
+    for instruction in instructions {
+        let name = instruction["name"].as_str().unwrap();
+        let in_idl: Vec<Vec<String>> = instruction["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(index, account)| {
+                assert!(
+                    account.get("accounts").is_none(),
+                    "{name}: nested accounts aren't covered"
+                );
+                vec![
+                    index.to_string(),
+                    account["name"].as_str().unwrap().to_owned(),
+                    yes_no(&account["writable"]).to_owned(),
+                    yes_no(&account["signer"]).to_owned(),
+                ]
+            })
+            .collect();
+
+        let documented: Vec<Vec<String>> = table(INSTRUCTIONS_DOC, &format!("### {name}"))
+            .into_iter()
+            .map(|row| row[..4].to_vec())
+            .collect();
+
+        assert_eq!(documented, in_idl, "{name}");
+    }
+}
+
+/// The document's error table is the IDL's errors: every number, name and
+/// message a client can be handed.
+#[test]
+fn the_document_lists_each_error_of_the_idl_and_no_other() {
+    let idl = idl();
+    let in_idl: Vec<Vec<String>> = idl["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            vec![
+                error["code"].as_u64().unwrap().to_string(),
+                error["name"].as_str().unwrap().to_owned(),
+                error["msg"].as_str().unwrap().to_owned(),
+            ]
+        })
+        .collect();
+
+    let documented: Vec<Vec<String>> = table(INSTRUCTIONS_DOC, "## 6. Errors")
+        .into_iter()
+        .map(|row| row[..3].to_vec())
+        .collect();
 
     assert!(!in_idl.is_empty());
     assert_eq!(documented, in_idl);

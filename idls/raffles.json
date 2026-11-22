@@ -9,28 +9,267 @@
   },
   "instructions": [
     {
-      "name": "hello",
+      "name": "accept_authority",
       "docs": [
-        "Scaffold smoke test: logs a greeting to the signer. Goes away once the",
-        "first real instruction lands."
+        "Makes the proposed authority the config's authority. It has to sign."
       ],
       "discriminator": [
-        149,
-        118,
-        59,
-        220,
-        196,
-        127,
-        161,
-        179
+        107,
+        86,
+        198,
+        91,
+        33,
+        12,
+        107,
+        160
       ],
       "accounts": [
         {
-          "name": "caller",
+          "name": "new_authority",
+          "docs": [
+            "The pending authority. Its signature is the proof that it can sign at",
+            "all, which is what the transfer waits for."
+          ],
           "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
+    },
+    {
+      "name": "init_config",
+      "docs": [
+        "Creates `Config` with `settings`. Only the program's upgrade authority",
+        "can, and it becomes the config's authority."
+      ],
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority. It pays `Config`'s rent and becomes",
+            "its authority."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "Where the upgradeable loader keeps the program's upgrade authority,",
+            "which the signer has to be."
+          ],
+          "address": "FEHLLCTkmEfFUxmkVBnQ4dnhzekUFzS5tLiJMoLRsvtU"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "settings",
+          "type": {
+            "defined": {
+              "name": "ConfigSettings"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_authority",
+      "docs": [
+        "Proposes `new_authority` as the config's authority, in place of any",
+        "earlier proposal. The zero address withdraws the proposal. The",
+        "authority doesn't change until `new_authority` signs",
+        "`accept_authority`."
+      ],
+      "discriminator": [
+        133,
+        250,
+        37,
+        21,
+        110,
+        163,
+        26,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "docs": [
+        "Changes the settings that `update` names, the pause flag among them,",
+        "and leaves the others as they are. A raffle keeps the settings it",
+        "copied when it was created."
+      ],
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "update",
+          "type": {
+            "defined": {
+              "name": "ConfigUpdate"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
     }
   ],
   "events": [
@@ -286,6 +525,61 @@
       "code": 6005,
       "name": "InvalidTransition",
       "msg": "the raffle can't move to that state from the one it is in"
+    },
+    {
+      "code": 6006,
+      "name": "Unauthorized",
+      "msg": "the signer isn't the authority this instruction takes"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidInitializer",
+      "msg": "the signer isn't the program's upgrade authority"
+    },
+    {
+      "code": 6008,
+      "name": "NoPendingAuthority",
+      "msg": "no authority transfer is pending"
+    },
+    {
+      "code": 6009,
+      "name": "Paused",
+      "msg": "the program is paused"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidEntryCap",
+      "msg": "the entry cap isn't between 1 and the highest the program allows"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidFullGangBonus",
+      "msg": "the entry cap and the Full Gang bonus don't fit one entry range"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidDurationBounds",
+      "msg": "the shortest duration is zero, or longer than the longest"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidRuleAddress",
+      "msg": "a membership rule's address is zero"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidRuleUpdateAuthority",
+      "msg": "a membership rule's update authority doesn't fit its kind"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidRuleSymbol",
+      "msg": "a membership rule's symbol doesn't fit its kind"
+    },
+    {
+      "code": 6016,
+      "name": "DuplicateMembershipRule",
+      "msg": "two membership rules are the same"
     }
   ],
   "types": [
@@ -325,6 +619,109 @@
           {
             "name": "pending_authority",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "docs": [
+        "The program's settings: one account, at `[CONFIG_SEED]`, that `init_config`",
+        "creates and nothing closes.",
+        "",
+        "A raffle copies the rules, the cap, the bonus and the duration bounds when",
+        "it is created (spec D14), so an edit here reaches only later raffles. The",
+        "authority and `paused` are the only fields read live."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "The admin. On mainnet the Squads vault, never the multisig account",
+              "(registries §6). It creates raffles without a `CreatorEntry`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_authority",
+            "docs": [
+              "Set by `set_authority`; becomes `authority` once it signs",
+              "`accept_authority`. Zero when no transfer is pending."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Blocks `create_raffle`, `claim_entries` and `request_draw`. Nothing",
+              "that pays out a prize or returns rent reads it (spec §10)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "membership_rules",
+            "docs": [
+              "One rule per Piggy collection. Rule `i` is bit `i` of",
+              "`EntryPosition::collections_seen`."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MembershipRule"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_cap",
+            "docs": [
+              "Per-NFT entries one wallet may claim in a raffle, 1 to",
+              "`MAX_ENTRY_CAP`. A raffle may lower it for itself (spec D6)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "full_gang_bonus",
+            "docs": [
+              "Entries the Full Gang bonus adds, on top of the cap. Together with the",
+              "cap it has to fit `EntryRange::count`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "min_duration",
+            "docs": [
+              "The shortest raffle, in seconds."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_duration",
+            "docs": [
+              "The longest raffle, in seconds."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Zero. Room for a later setting without a realloc."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
           }
         ]
       }
@@ -379,11 +776,136 @@
       }
     },
     {
+      "name": "ConfigSettings",
+      "docs": [
+        "What the authority sets in `Config`: `init_config` takes all of it, and",
+        "both config events carry all of it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused",
+            "docs": [
+              "Whether the program starts, or is, paused."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "membership_rules",
+            "docs": [
+              "One rule per Piggy collection, each valid and no two the same."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MembershipRule"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_cap",
+            "docs": [
+              "1 to `MAX_ENTRY_CAP`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "full_gang_bonus",
+            "docs": [
+              "With `entry_cap`, at most 255."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "min_duration",
+            "docs": [
+              "Seconds, above zero."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_duration",
+            "docs": [
+              "Seconds, at least `min_duration`."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdate",
+      "docs": [
+        "What `update_config` changes: the settings it names, and no other. A",
+        "proposal can wait for its signatures while another one lands, so an update",
+        "that carried every setting would undo whatever changed in between. This",
+        "one can't: a pause names the pause flag and leaves the rest as it finds it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused",
+            "type": {
+              "option": "bool"
+            }
+          },
+          {
+            "name": "membership_rules",
+            "docs": [
+              "All three rules, or none: they are checked as a set."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  {
+                    "defined": {
+                      "name": "MembershipRule"
+                    }
+                  },
+                  3
+                ]
+              }
+            }
+          },
+          {
+            "name": "entry_cap",
+            "type": {
+              "option": "u8"
+            }
+          },
+          {
+            "name": "full_gang_bonus",
+            "type": {
+              "option": "u8"
+            }
+          },
+          {
+            "name": "min_duration",
+            "type": {
+              "option": "u32"
+            }
+          },
+          {
+            "name": "max_duration",
+            "type": {
+              "option": "u32"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ConfigUpdated",
       "docs": [
         "`update_config` changed a setting, the pause flag included. The event",
         "carries every setting, changed or not: the difference from the event",
-        "before it is the change."
+        "before it is the change. An update that changed nothing emits it too."
       ],
       "type": {
         "kind": "struct",

@@ -6,7 +6,7 @@
 | Date | 2026-11-15 |
 | Code | `idls/raffles.json`, `clients/`, `deployments.json`, `.github/workflows/release.yml`, `.github/actions/idl-drift`, `scripts/version.sh`, `scripts/deployments.sh`, `scripts/idl-drift.sh` |
 | Status | The pipeline, with no release yet. `v0.1.0` belongs to PIG-155, once the instructions exist. |
-| Built on | Architecture 1.2 §1, the [account model](account-model.md) and the [events](events.md) |
+| Built on | Architecture 1.2 §1, the [account model](account-model.md), the [events](events.md) and the [instructions](instructions.md) |
 
 ## Summary
 
@@ -65,7 +65,7 @@ raffles-client = { git = "https://github.com/piggygang/raffles-program", tag = "
   - `constants` and `error`
   - `client::args` and `client::accounts`, which build every instruction
   - `parsers::Account`, `parsers::Event` and `parsers::Instruction`, which read one from bytes
-  - `pda`: every address of [account model](account-model.md) section 2, and the event authority
+  - `pda`: every address of [account model](account-model.md) section 2, the event authority, and the ProgramData account that `init_config` takes
   - `read_event`: the event in an inner instruction's data ([events](events.md), section 1)
   - `anchor_lang`: the Anchor these types are built with, for `Pubkey` and its traits, so a consumer needs none of its own
 - **It builds on Rust 1.90,** which CI checks. The indexer and raffles-services are there.
@@ -80,6 +80,8 @@ raffles-client = { git = "https://github.com/piggygang/raffles-program", tag = "
 Once the package is on npm (section 6), the version alone does: `"@piggygang/raffles-client": "0.1.0"`.
 
 - **What it has:** an instruction builder and parser for each instruction, a codec for each account, event and type, the errors with their messages, the constants, `RAFFLES_PROGRAM_ADDRESS`, `VERSION`, and `EVENT_TAG` with `getEventData` for event instructions. The IDL itself is `@piggygang/raffles-client/idl.json`.
+- **An instruction's arguments are the IDL's.** `init_config` takes `settings`, a `ConfigSettings`, as in the Rust client and in the [instructions](instructions.md). Codama's default would spread a struct argument over the instruction and drop its type, so the generator leaves that step out.
+- **A builder places the accounts the IDL places,** and the two that every emitting instruction ends with: the event authority and the program. The `…Async` builders derive `Config`'s address and the event authority's; the plain ones take them.
 - **It is built on `@solana/kit`,** a peer dependency, version 8.5 or later. It needs neither `@solana/web3.js` nor a `Buffer` polyfill.
 - **ES modules only.**
 
@@ -100,8 +102,8 @@ A repository that keeps its own copy of `raffles.json` checks it in CI:
 
 ### What the clients don't have yet
 
-- **Accounts.** Anchor puts an account in the IDL once an instruction names it, so the clients gain each account with its instruction. `EntryReceipt` never arrives: receipts are passed as remaining accounts. Its layout is in the [account model](account-model.md), section 4.
-- **Addresses in TypeScript.** Codama generates an address function for each account an instruction derives from seeds. It can't for a receipt, nor for a `PrizeEntry`, whose seeds are fields of the account. Those go into `clients/ts/scripts/generate.mjs` by hand, with Codama's `addPdasVisitor`, when `claim_entries` and the registry instructions land (PIG-84, PIG-140). The Rust client has them all in `pda`.
+- **Accounts.** Anchor puts an account in the IDL once an instruction names it, so the clients gain each account with its instruction. They have `Config` so far. `EntryReceipt` never arrives: receipts are passed as remaining accounts. Its layout is in the [account model](account-model.md), section 4.
+- **Addresses in TypeScript.** Codama generates an address function for each account an instruction derives from seeds: `findConfigPda` so far. It can't for a receipt, nor for a `PrizeEntry`, whose seeds are fields of the account. Those go into `clients/ts/scripts/generate.mjs` by hand, with Codama's `addPdasVisitor`, when `claim_entries` and the registry instructions land (PIG-84, PIG-140). The event authority's is there that way already, as `findEventAuthorityPda`. The Rust client has them all in `pda`.
 
 ## 3. deployments.json
 
@@ -168,8 +170,9 @@ A release that is only deployed later, or never, is still a release: the tag and
 - **The committed IDL is the one the program builds.** `cargo test` compares `idls/raffles.json` with `target/idl/raffles.json`, which the build wrote. CI uploads the built IDL as the `idl` artifact before it runs the tests, so a failed run hands over the file to commit.
 - **A released version's IDL is frozen.** `scripts/version.sh check` fails when the version's tag exists and `idls/raffles.json` no longer matches it.
 - **One version.** The same script fails when the program, the IDL and the two clients disagree, and the release workflow when the tag isn't that version.
-- **The Rust client is the program.** The program's `interface` tests check its program ID, its version, every address in `pda` against the program's own, and that it reads the events the program emits.
-- **The TypeScript client reads the IDL as Borsh does.** Its tests make a value of every type in the IDL, encode it with a second implementation of Borsh, and require every generated codec to agree in both directions. They name nothing from the interface, so they hold as it grows.
+- **The Rust client is the program.** The program's `interface` tests check its program ID, its version, every address in `pda` against the program's own, and that it reads the events the program emits. The tests that run the instructions derive every account with `pda`.
+- **The instructions document lists the IDL's instructions and errors,** and no others ([instructions](instructions.md), section 10).
+- **The TypeScript client reads the IDL as Borsh does.** Its tests make a value of every type in the IDL, encode it with a second implementation of Borsh, and require every generated codec to agree in both directions. They also build every instruction, and require each account to be where the IDL places it, with who signs and what is written. They name nothing from the interface, so they hold as it grows.
 - **The events document lists the IDL's events** ([events](events.md), section 8).
 - **The drift check works.** CI runs the action on a copy of the IDL, which passes, and the script on a copy from another release, which has to fail with the status for drift.
 

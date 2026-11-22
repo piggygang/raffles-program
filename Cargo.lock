@@ -2892,11 +2892,13 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "base64 0.22.1",
  "getrandom 0.2.17",
  "litesvm",
  "mpl-core",
  "raffles-client",
  "serde_json",
+ "solana-account",
  "solana-keypair",
  "solana-message 4.4.1",
  "solana-signer",

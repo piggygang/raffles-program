@@ -2,11 +2,13 @@
 
 The Anchor program behind PiggyGang Raffles: escrowed prizes, free per-NFT entries for Piggy holders, a Switchboard On-Demand draw, and settlement with rent refunds. It is the only source of truth for raffle state; the indexer, the crank and the frontend all read from it. The product spec and the system architecture live in `docs/` of [piggygang/raffles](https://github.com/piggygang/raffles).
 
-So far the program has its account model, its events and a single scaffold instruction, `hello`. The repo is Rust: the program, its tests and their harness. The one exception is the TypeScript client in `clients/ts`, which CI generates from the IDL.
+So far the program has its account model, its events, and the instructions of the config and its authority: `init_config`, `update_config`, `set_authority` and `accept_authority`. The repo is Rust: the program, its tests and their harness. The one exception is the TypeScript client in `clients/ts`, which CI generates from the IDL.
 
 [docs/account-model.md](docs/account-model.md) has every account's layout, size and rent, the addresses they live at, and the raffle state machine (PIG-86).
 
 [docs/events.md](docs/events.md) has every event's layout, and how the program emits them: as inner instructions, not log lines (PIG-117).
+
+[docs/instructions.md](docs/instructions.md) has every instruction: its accounts and arguments, what it checks, the errors, the pause, and how the authority moves from the deployer's key to a Squads vault (PIG-81).
 
 [docs/releases.md](docs/releases.md) has how the program's interface is released and consumed (PIG-117): the IDL, a TypeScript client and a Rust client per tag, `deployments.json`, which says what each cluster runs, and the one line with which the indexer, raffles-services and the app pin a release.
 
@@ -76,15 +78,17 @@ anchor test    # build, then cargo test
 cargo test     # rerun after a build
 ```
 
-The tests run in-process on [LiteSVM](https://github.com/LiteSVM/litesvm): no validator, no network, about 0.1 s for the suite. Each test gets a fresh VM with `raffles` from `target/deploy` at its declared address, so build before running `cargo test` alone.
+The tests run in-process on [LiteSVM](https://github.com/LiteSVM/litesvm): no validator, no network, a few seconds for the suite. Each test gets a fresh VM with `raffles` from `target/deploy` at its declared address, so build before running `cargo test` alone. The VM's deployer holds the program's upgrade authority, as after a deploy.
 
-The VM also runs Token Metadata and mpl-core: their mainnet bytecode, dumped into `programs/raffles/tests/fixtures` along with the deploy each came from. Token Metadata is immutable on mainnet; when mpl-core ships an upgrade, refresh the dump with `scripts/dump-fixtures.sh` and commit it. Smoke tests create an NFT and a Core asset through them, which is also how raffle tests will mint their prizes and Piggies.
+The VM also runs Token Metadata and mpl-core, and for the authority's tests Squads v4: their mainnet bytecode, dumped into `programs/raffles/tests/fixtures` along with the deploy each came from, and Squads' program config account. Token Metadata and Squads are immutable on mainnet; when mpl-core ships an upgrade, refresh the dump with `scripts/dump-fixtures.sh` and commit it. Smoke tests create an NFT and a Core asset through them, which is also how raffle tests will mint their prizes and Piggies.
 
 The tests are one binary, `programs/raffles/tests/integration`, with a module per area and a shared `harness`. Add new areas as modules there, not as new files in `tests/`, so LiteSVM links once.
 
-The account model has unit tests next to its types, in `programs/raffles/src/state`. They check every layout, size, rent figure, enum value and state transition against [docs/account-model.md](docs/account-model.md), so a change to an account fails until the document says the same. The events have the same in `programs/raffles/src/events.rs`, against [docs/events.md](docs/events.md).
+The account model has unit tests next to its types, in `programs/raffles/src/state`. They check every layout, size, rent figure, enum value and state transition against [docs/account-model.md](docs/account-model.md), so a change to an account fails until the document says the same. The events have the same in `programs/raffles/src/events.rs`, against [docs/events.md](docs/events.md). The list of instructions, their arguments and the errors have it in `instructions.rs`, `state/config.rs` and `error.rs`, against [docs/instructions.md](docs/instructions.md).
 
-The `interface` module of the integration tests holds the released interface to the program: the committed IDL is the one the build wrote, the events document lists the IDL's events, and the Rust client in `clients/rust` has the program's ID, version and addresses and reads the events it emits.
+The `config` and `authority` modules of the integration tests run each instruction: who can call it, what `Config` holds afterwards, each way it fails, and the event it emits, read from the transaction's inner instructions. The `vault` module runs them as Squads vault transactions: a multisig of two out of three, a transaction for its vault, the approvals and the execution, all by the Squads program that mainnet runs. `squads.rs` builds those instructions by hand, because Squads' own crate is on an older Solana SDK.
+
+The `interface` module of the integration tests holds the released interface to the program: the committed IDL is the one the build wrote, the events and instructions documents list the IDL's events, instructions and errors, with each instruction's accounts as the IDL orders them, and the Rust client in `clients/rust` has the program's ID, version and addresses and reads the events it emits.
 
 The VRF spike's tests run the ORAO VRF program dumped from devnet, with test keys in place of ORAO's fulfillment authorities, so request, fulfill and consume all run for real. `scripts/dump-vrf-spike-fixtures.sh` refreshes the dump.
 
@@ -201,7 +205,7 @@ Anchor 1.2.2 is built on the Solana 3 crates, and every dependency is aligned to
 ```text
 programs/raffles/src/                 the program
 programs/raffles/tests/integration/   LiteSVM tests: harness and one module per area
-programs/raffles/tests/fixtures/      Token Metadata and mpl-core dumped from mainnet
+programs/raffles/tests/fixtures/      Token Metadata, mpl-core and Squads v4 dumped from mainnet
 programs/vrf-spike/                   PIG-114 spike program, its tests and ORAO fixtures
 programs/claim-spike/                 PIG-133 spike program, its tests and mainnet pig fixtures
 spikes/vrf-driver/                    PIG-114 devnet driver (its own workspace)
@@ -212,6 +216,7 @@ clients/ts/                           the TypeScript client, generated from the 
 deployments.json                      which release each cluster runs, and since which slot
 docs/account-model.md                 accounts, sizes, rent and the state machine
 docs/events.md                        events, their layouts and how they are emitted
+docs/instructions.md                  instructions, their accounts, arguments and errors
 docs/releases.md                      releases, pinning one, deployments.json and the drift check
 docs/spikes/                          spike write-ups
 scripts/                              deploy-devnet.sh, the fixture dumps (dump-*.sh), and
