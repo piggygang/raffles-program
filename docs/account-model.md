@@ -5,7 +5,7 @@
 | Issue | PIG-86 |
 | Date | 2026-11-15 |
 | Code | `programs/raffles/src/state`, `constants.rs` and `error.rs` |
-| Status | The accounts, their constants and the state machine's edges. No instruction uses them yet: each one named below lands with its own issue, from PIG-81 on. |
+| Status | The accounts, their constants and the state machine's edges. `Config` is in use: `init_config`, `update_config`, `set_authority` and `accept_authority` write it ([instructions](instructions.md)). Every other instruction named below lands with its own issue. |
 | Built on | Spec 1.6 §7, holder-proof §5, registries §3, prize escrow §4 and §6, rules §3 and §5, and the PIG-114 and PIG-133 spikes |
 | Rent | 5,080 lamports per byte, plus 128 bytes of overhead per account: devnet and mainnet on 2026-11-15 |
 
@@ -48,7 +48,7 @@ Dashed edges are reads. Nothing after `create_raffle` reads `Config`'s rules, ca
 
 | Address | Seeds | Notes |
 | --- | --- | --- |
-| `Config` | `[b"config"]` | One per program |
+| `Config` | `[b"config"]` | One per program: `AreDz3k5FfTvLpjN3dV2kjyGqTiWc8EJKf6bjVmpsrqU` |
 | `CreatorEntry` | `[b"creator", wallet]` | |
 | `PrizeEntry` | `[b"prize", [kind], address]` | `kind` is one byte, a `PrizeKind`. An address can have an entry of each kind. |
 | `Raffle` | `[b"raffle", creator, nonce]` | `nonce` is a `u64`, little-endian, chosen by the creator |
@@ -67,7 +67,7 @@ Dashed edges are reads. Nothing after `create_raffle` reads `Config`'s rules, ca
 
 | Account | Bytes | Rent, lamports | Paid by | Returned to | By |
 | --- | ---: | ---: | --- | --- | --- |
-| `Config` | 373 | 2,545,080 | The deployer | Nobody | Never closed |
+| `Config` | 373 | 2,545,080 | The program's upgrade authority, in `init_config` | Nobody | Never closed |
 | `CreatorEntry` | 113 | 1,224,280 | The authority | The authority | `creator_remove` |
 | `PrizeEntry` | 82 | 1,066,800 | The authority | The authority | `allowlist_remove` |
 | `Raffle` | 753 | 4,475,480 | The creator | The creator | `close_raffle` |
@@ -329,6 +329,8 @@ The seven seed prefixes of section 2 are constants too, `CONFIG_SEED` to `RECEIP
 
 The three timers are constants, not `Config` values, so none can change under a raffle that is already running (spec §15, "claim expiry").
 
+`PROGRAM_DATA` is a constant too: the address of the program's ProgramData account, which `init_config` reads the upgrade authority from. It isn't among the IDL's constants: the IDL gives it as that account's address ([instructions](instructions.md), section 3).
+
 ## 7. State machine
 
 ```mermaid
@@ -423,7 +425,7 @@ Choices the designs left to this issue, and places where a later finding replace
 
 ## 9. What the later issues have to keep true
 
-- **`init_config` and `update_config` (PIG-81).**
+- **`init_config` and `update_config` (PIG-81).** Landed. Both check the settings they write, whole ([instructions](instructions.md), section 4):
   - `entry_cap` is 1 to `MAX_ENTRY_CAP`.
   - `entry_cap + full_gang_bonus` fits a `u8`: it is the most one `EntryRange.count` holds.
   - `0 < min_duration ≤ max_duration`.
@@ -462,7 +464,7 @@ Choices the designs left to this issue, and places where a later finding replace
   - It empties the token escrow before closing it. Tokens can arrive after the payout too, and a token account with a balance doesn't close: one base unit would hold the creator's rent for good.
   - A request that the provider fulfils after the close refunds its rent to the vault's address (PIG-114 §2.1), which nothing empties by then. `creator` and `nonce` still derive that address, so an instruction can return those lamports to the creator later. PIG-153 decides whether to add one.
 - **The IDL (PIG-117).**
-  - Anchor lists an account in the IDL only once an instruction's accounts struct names it. Today the IDL has the constants, the errors and the events ([events](events.md)), and no account.
+  - Anchor lists an account in the IDL only once an instruction's accounts struct names it. Today the IDL has the constants, the errors, the events ([events](events.md)), four instructions ([instructions](instructions.md)) and one account, `Config`.
   - `EntryReceipt` will never be listed: claims and closes pass receipts as remaining accounts. The claim spike's IDL shows it, with `Config`, `EntryPosition` and `Raffle` only. A decoder takes the receipt from this document or from the crate.
   - The IDL shows the enums as `u8`. Their values are in section 5.
   - The released clients are generated from the IDL, so each gains an account with the instruction that names it. The Rust client already derives every address of section 2 ([releases](releases.md)).

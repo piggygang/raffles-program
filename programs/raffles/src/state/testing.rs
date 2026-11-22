@@ -1,9 +1,9 @@
 //! What the layout tests share. Each test spells out the fields of its
-//! account or event in order. The helpers check that list against the bytes
-//! the program writes, and require the table in the published document to be
-//! exactly the rows it gives. So a field can't move, grow, appear or go
-//! without the test and the document following, and the document can't list
-//! what the code doesn't have.
+//! account, event or argument in order. The helpers check that list against
+//! the bytes the program writes, and require the table in the published
+//! document to be exactly the rows it gives. So a field can't move, grow,
+//! appear or go without the test and the document following, and the document
+//! can't list what the code doesn't have.
 
 use {
     crate::error::RaffleError,
@@ -29,6 +29,17 @@ pub const EVENTS: Doc = Doc {
     path: "docs/events.md",
     text: include_str!("../../../../docs/events.md"),
 };
+
+/// Where the instructions, their arguments and the errors are published.
+pub const INSTRUCTIONS: Doc = Doc {
+    path: "docs/instructions.md",
+    text: include_str!("../../../../docs/instructions.md"),
+};
+
+/// A key that is `byte` 32 times: a sample's fields each get their own.
+pub fn key(byte: u8) -> Pubkey {
+    Pubkey::new_from_array([byte; 32])
+}
 
 /// How a layout table gives the size of a `String` or a `Vec`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -150,6 +161,58 @@ where
     assert_eq!(bytes.len(), space, "{name}: size");
     rows.push(format!("| | **total** | | **{space}** |"));
     assert_table(&format!("### {name}"), "", &rows);
+    assert_eq!(
+        &T::try_from_slice(&bytes).unwrap(),
+        sample,
+        "{name}: round trip"
+    );
+}
+
+/// Checks a record that an instruction takes as an argument:
+/// - `sample` serializes to `fields` in order, and nothing else
+/// - the bytes read back as `sample`
+/// - the table of the `### {name}` section of docs/instructions.md is each
+///   field with its type and size, and the total: those rows and no others
+///
+/// An `Option` is one byte, then its value if it has one. The sample has to
+/// give each one a value, so the table can say how long that makes it.
+pub fn assert_arguments<T>(name: &str, sample: &T, fields: &[Field])
+where
+    T: AnchorSerialize + AnchorDeserialize + PartialEq + Debug,
+{
+    let mut bytes = Vec::new();
+    sample.serialize(&mut bytes).unwrap();
+    let expected: Vec<u8> = fields
+        .iter()
+        .flat_map(|field| field.bytes.iter().copied())
+        .collect();
+    assert_eq!(bytes, expected, "{name}: the fields in order");
+
+    let (mut least, mut most) = (0, 0);
+    let mut rows: Vec<String> = fields
+        .iter()
+        .map(|field| {
+            let (field_name, ty, len) = (field.name, field.ty, field.bytes.len());
+            most += len;
+            if ty.starts_with("Option<") {
+                assert_eq!(
+                    field.bytes[0], 1,
+                    "{name}: the sample's `{field_name}` has to hold a value"
+                );
+                least += 1;
+                format!("| `{field_name}` | `{ty}` | 1 or {len} |")
+            } else {
+                least += len;
+                format!("| `{field_name}` | `{ty}` | {len} |")
+            }
+        })
+        .collect();
+    rows.push(if least == most {
+        format!("| **total** | | **{most}** |")
+    } else {
+        format!("| **total** | | **{least} to {most}** |")
+    });
+    INSTRUCTIONS.assert_table(&format!("### {name}"), "", &rows);
     assert_eq!(
         &T::try_from_slice(&bytes).unwrap(),
         sample,

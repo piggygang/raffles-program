@@ -5,7 +5,7 @@
 | Issue | PIG-117 |
 | Date | 2026-11-15 |
 | Code | `programs/raffles/src/events.rs` |
-| Status | The events, their layouts and how they are emitted. No instruction emits one yet: each lands with its instruction's issue, from PIG-81 on. |
+| Status | The events, their layouts and how they are emitted. The four config and authority events are emitted ([instructions](instructions.md)). Every other one lands with its instruction's issue. |
 | Built on | Architecture 1.2 §3b and §9, registries §4 and §8, rules §3, prize escrow §7, and the [account model](account-model.md) |
 
 ## Summary
@@ -35,7 +35,7 @@ The program emits events with Anchor's `emit_cpi!`: it invokes itself, and the e
 - **Skip failed transactions.** They keep their inner instructions, and nothing in them happened.
 - **An event sits right under the instruction that emitted it.** That instruction is top-level when a wallet sends it, and itself an inner instruction when a Squads vault does (registries §8). A reader therefore walks every inner instruction, at any depth.
 - **Order.** Number a transaction's events as its instructions ran: each top-level instruction, then its inner instructions in order. That is architecture §3b's `event_index`. A transaction can hold several events, for example a Squads bundle or several closes.
-- **Each successful instruction emits exactly one event,** after it has done its work. `hello`, the scaffold instruction, emits none.
+- **Each successful instruction emits exactly one event,** after it has done its work.
 - **Nothing is logged.** The program never uses `emit!`, so `logMessages` holds no event. A log line that looks like one comes from somewhere else.
 - **Cost.** An instruction that emits names two more accounts, the event authority and the program. That is 34 bytes of a legacy transaction, and the self-call costs compute. Section 7 has what it means for `claim_entries`.
 
@@ -93,7 +93,7 @@ Borsh, little-endian, like the accounts. Offsets count from the start of the eve
 
 ### ConfigUpdated
 
-`update_config` changed a setting, the pause flag included. The event carries every setting, changed or not: what differs from the config event before it is the change.
+`update_config` changed a setting, the pause flag included. The event carries every setting, changed or not: what differs from the config event before it is the change. An update that changed nothing emits it too.
 
 | Offset | Field | Type | Bytes | Notes |
 | ---: | --- | --- | ---: | --- |
@@ -372,7 +372,7 @@ Each is one byte, with the values of the [account model](account-model.md), sect
   - Its accounts struct has `#[event_cpi]`, and it calls `emit_cpi!` once, after its last change, with the values as they then are.
   - It never emits with `emit!`, and logs nothing a reader needs.
   - An event's name and fields never change: the discriminator derives from the name, and readers decode by position. A new need gets a new event.
-- **`init_config` and `update_config` (PIG-81).** Both events carry every setting. If the pause flag gets an instruction of its own, it emits `ConfigUpdated` too.
+- **`init_config` and `update_config` (PIG-81).** Landed. Both events carry every setting, read from `Config` after the change. The pause flag has no instruction of its own: pausing is an `update_config`, and emits `ConfigUpdated` ([instructions](instructions.md), section 5).
 - **Registry instructions (PIG-140).** `CreatorAdded.label` is the entry's 32 bytes, padding included.
 - **`create_raffle` (PIG-85, PIG-141, PIG-142).**
   - `created_by_authority` is true exactly when the creator is `Config.authority`, whether or not it also has a `CreatorEntry`.
@@ -403,7 +403,8 @@ cargo test -p raffles events
 - **Layout.** For each event, a test in `programs/raffles/src/events.rs` lists the fields in order, and the compiler checks each name and type. The test checks the list against the bytes the program emits: the discriminator, each field at its offset, and nothing after the last. The table in section 3 has to be exactly those rows, and the bytes have to read back as the same event.
 - **The list.** Section 2's table has to be exactly the seventeen events with their discriminators, and section 3 has to have a layout for each, in that order, and for nothing else.
 - **The tag and the event authority.** Section 1's two values are checked against Anchor's constant and the program's address.
-- **The IDL and the client.** `cargo test -p raffles --test integration interface` checks that the IDL of record lists these events and no others, and that the released Rust client reads what the program emits ([releases](releases.md)).
+- **The IDL and the client.** `cargo test -p raffles --test integration interface` checks that the IDL of record lists these events and no others, and that the released Rust client reads what the program emits, an event taken from a transaction included ([releases](releases.md)).
+- **The events as emitted.** The instruction tests take each event from the inner instructions of the transaction that emitted it, and compare it with the account, field by field ([instructions](instructions.md), section 10).
 
 Each table is compared whole, up to its last column. The last column and the text around the tables are prose, which no test reads.
 

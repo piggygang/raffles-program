@@ -45,7 +45,7 @@ pub struct ConfigInitialized {
 
 /// `update_config` changed a setting, the pause flag included. The event
 /// carries every setting, changed or not: the difference from the event
-/// before it is the change.
+/// before it is the change. An update that changed nothing emits it too.
 #[event]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConfigUpdated {

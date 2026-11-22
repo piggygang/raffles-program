@@ -11,9 +11,20 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { rootNodeFromAnchor } from "@codama/nodes-from-anchor";
+import { extractPdasVisitor, rootNodeFromAnchorWithoutDefaultVisitor } from "@codama/nodes-from-anchor";
 import { renderVisitor } from "@codama/renderers-js";
-import { createFromRoot } from "codama";
+import {
+  addPdasVisitor,
+  constantPdaSeedNodeFromString,
+  createFromRoot,
+  deduplicateIdenticalDefinedTypesVisitor,
+  getCommonInstructionAccountDefaultRules,
+  pdaValueNode,
+  programIdValueNode,
+  setFixedAccountSizesVisitor,
+  setInstructionAccountDefaultValuesVisitor,
+  transformU8ArraysToBytesVisitor,
+} from "codama";
 
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const idlPath = join(packageDir, "..", "..", "idls", "raffles.json");
@@ -27,7 +38,38 @@ if (idl.metadata.version !== version) {
   );
 }
 
-const codama = createFromRoot(rootNodeFromAnchor(idl));
+// Codama's defaults for an Anchor IDL, except the two that reshape an
+// instruction's arguments: they would spread a struct argument such as
+// `settings` over the instruction's own fields and drop its type. The client
+// keeps what the IDL says: `init_config` takes `settings`, a `ConfigSettings`,
+// as the Rust client and docs/instructions.md have it.
+const codama = createFromRoot(rootNodeFromAnchorWithoutDefaultVisitor(idl));
+codama.update(extractPdasVisitor());
+codama.update(deduplicateIdenticalDefinedTypesVisitor());
+codama.update(setFixedAccountSizesVisitor());
+codama.update(setInstructionAccountDefaultValuesVisitor(getCommonInstructionAccountDefaultRules()));
+codama.update(transformU8ArraysToBytesVisitor());
+
+// The two accounts every instruction that emits an event ends with
+// (docs/events.md, section 1). The IDL names them without saying where they
+// are, so a caller would have to pass both each time.
+codama.update(
+  addPdasVisitor({
+    [idl.metadata.name]: [
+      {
+        name: "eventAuthority",
+        seeds: [constantPdaSeedNodeFromString("utf8", "__event_authority")],
+      },
+    ],
+  }),
+);
+codama.update(
+  setInstructionAccountDefaultValuesVisitor([
+    { account: "eventAuthority", defaultValue: pdaValueNode("eventAuthority") },
+    { account: "program", defaultValue: programIdValueNode() },
+  ]),
+);
+
 await codama.accept(
   renderVisitor(packageDir, {
     deleteFolderBeforeRendering: true,

@@ -1,8 +1,9 @@
-//! PDA seed prefixes, the timers the spec fixes, and the limits that size the
-//! accounts. `#[constant]` also publishes a value in the IDL, which knows no
-//! `usize`, so the limits clients need are `u8`.
+//! PDA seed prefixes, the timers the spec fixes, the limits that size the
+//! accounts, and the one address the program reads that isn't its own.
+//! `#[constant]` also publishes a value in the IDL, which knows no `usize`, so
+//! the limits clients need are `u8`.
 
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, solana_program::bpf_loader_upgradeable};
 
 // Seed prefixes. Each kind of address has its own, and none begins another, so
 // no two kinds can ever derive the same address.
@@ -37,6 +38,18 @@ pub const POSITION_SEED: &[u8] = b"position";
 /// Metadata mint or a Core asset.
 #[constant]
 pub const RECEIPT_SEED: &[u8] = b"receipt";
+
+/// The program's ProgramData account: where the upgradeable loader keeps the
+/// program's upgrade authority, the one key `init_config` takes. The loader
+/// puts it at `[program id]` under its own address, so it is known here
+/// without a derivation at run time.
+pub const PROGRAM_DATA: Pubkey = {
+    let (address, _bump) = anchor_lang::derive_program_address(
+        &[&crate::ID_CONST.to_bytes()],
+        &bpf_loader_upgradeable::ID.to_bytes(),
+    );
+    Pubkey::new_from_array(address)
+};
 
 // Timers. They are constants rather than `Config` values so that none can
 // change under a raffle that is already running.
@@ -90,7 +103,7 @@ pub const MAX_TITLE_LEN: u8 = 64;
 mod tests {
     use {
         super::*,
-        crate::state::testing::{assert_table, grouped},
+        crate::state::testing::{assert_table, grouped, INSTRUCTIONS},
     };
 
     const SEEDS: [&[u8]; 7] = [
@@ -116,6 +129,18 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_program_data_address_is_the_loaders() {
+        assert_eq!(
+            PROGRAM_DATA,
+            Pubkey::find_program_address(&[crate::ID.as_ref()], &bpf_loader_upgradeable::ID).0
+        );
+        assert!(
+            INSTRUCTIONS.says(&format!("`{PROGRAM_DATA}`")),
+            "{PROGRAM_DATA}"
+        );
     }
 
     #[test]

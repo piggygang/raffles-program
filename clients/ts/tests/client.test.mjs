@@ -9,8 +9,16 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import {
+  createNoopSigner,
+  getAddressDecoder,
+  getProgramDerivedAddress,
+  isSignerRole,
+  isWritableRole,
+} from "@solana/kit";
+
 import * as client from "../dist/index.js";
-import { constantCase, createReference, pascalCase } from "./reference.mjs";
+import { camelCase, constantCase, createReference, pascalCase } from "./reference.mjs";
 
 const idl = JSON.parse(readFileSync(new URL("../idl/raffles.json", import.meta.url), "utf8"));
 const program = pascalCase(idl.metadata.name);
@@ -111,6 +119,60 @@ test("every instruction's data is its discriminator, then its arguments", () => 
   }
 });
 
+test("every instruction's builder places the accounts as the IDL does", async () => {
+  const reference = createReference(idl);
+  const utf8 = new TextEncoder();
+  let next = 0;
+  /** An address no other account of the test has. */
+  const address = () => {
+    next += 1;
+    return getAddressDecoder().decode(Uint8Array.from({ length: 32 }, (_, index) => (next * 17 + index) % 256));
+  };
+  const derived = async (seeds) => (await getProgramDerivedAddress({ programAddress: idl.address, seeds }))[0];
+
+  for (const { name, accounts: instructionAccounts, args } of instructions) {
+    const type = pascalCase(name);
+    const input = reference.sampleFields(args);
+    const expected = [];
+    for (const account of instructionAccounts) {
+      if (account.accounts) throw new Error(`${name}: nested accounts aren't covered`);
+      const seeds = account.pda?.seeds ?? [];
+      if (account.address) {
+        // The IDL fixes the address, so the caller passes nothing.
+        expected.push(account.address);
+      } else if (account.pda && !account.pda.program && seeds.every((seed) => seed.kind === "const")) {
+        // So does an address made of constant seeds alone.
+        expected.push(await derived(seeds.map((seed) => Uint8Array.from(seed.value))));
+      } else if (account.name === "event_authority") {
+        // Anchor's two event accounts, which the IDL names without an
+        // address: the generator places them (docs/events.md, section 1).
+        expected.push(await derived([utf8.encode("__event_authority")]));
+      } else if (account.name === "program") {
+        expected.push(idl.address);
+      } else {
+        const given = address();
+        input[camelCase(account.name)] = account.signer ? createNoopSigner(given) : given;
+        expected.push(given);
+      }
+    }
+
+    const build = client[`get${type}InstructionAsync`] ?? exported(`get${type}Instruction`);
+    const instruction = await build(input);
+
+    assert.equal(instruction.programAddress, idl.address, name);
+    assert.deepEqual(
+      instruction.accounts.map((account) => account.address),
+      expected,
+      name,
+    );
+    instructionAccounts.forEach((account, index) => {
+      const { role } = instruction.accounts[index];
+      assert.equal(isSignerRole(role), account.signer === true, `${name}: ${account.name} signs`);
+      assert.equal(isWritableRole(role), account.writable === true, `${name}: ${account.name} is writable`);
+    });
+  }
+});
+
 test("every error has its code", () => {
   for (const { name, code } of idl.errors ?? []) {
     assert.equal(exported(`${PROGRAM}_ERROR__${constantCase(name)}`), code, name);
@@ -138,7 +200,10 @@ test("the event tag is Anchor's, and only an instruction that starts with it is 
   assert.deepEqual(client.EVENT_TAG, Uint8Array.from(tag));
   assert.deepEqual(client.getEventData(Uint8Array.from([...tag, 1, 2, 3])), Uint8Array.from([1, 2, 3]));
   // An instruction's own data starts with its discriminator.
-  assert.equal(client.getEventData(Uint8Array.from([149, 118, 59, 220, 196, 127, 161, 179])), undefined);
+  assert.ok(instructions.length > 0);
+  for (const { name, discriminator } of instructions) {
+    assert.equal(client.getEventData(Uint8Array.from(discriminator)), undefined, name);
+  }
   assert.equal(client.getEventData(Uint8Array.from(tag.subarray(0, 7))), undefined);
   assert.equal(client.getEventData(new Uint8Array()), undefined);
 });
